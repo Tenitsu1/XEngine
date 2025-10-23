@@ -12,6 +12,9 @@ namespace XEngine::core
 
 		void handleSDLEvent(SDL_Event& e);
 
+		bool wantCaptureMouse();
+		bool wantCaptureKeyboard();
+
 		void beginRender();
 		void endRender();
 	};

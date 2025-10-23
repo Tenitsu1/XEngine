@@ -1,6 +1,8 @@
 ﻿#include "XEngine/engine.h"
 #include "XEngine/app.h"
 
+#include "XEngine/log.h"
+
 #include "XEngine/graphics/mesh.h"
 #include "XEngine/graphics/shader.h"
 
@@ -17,9 +19,12 @@ private:
 	std::shared_ptr<graphics::Mesh> mMesh;
 	std::shared_ptr<graphics::Shader> mShader;
 
+	float light = 0.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
+	float zkeyOffset = 0.f;
 	float keySpeed = 0.005f;
+	float size = 1.0f;
 
 public:
 	void initialize() override
@@ -71,10 +76,12 @@ public:
 		mShader->setUniformInt("sphereCount", 4);
 		mShader->setUniformFloat4("spheres[0]", 0.0f, -100.5f, -1.0f, 100.0f); // 地面
 		mShader->setUniformFloat4("spheres[1]", 0.2f, 0.8f, 0.2f, 0.0f); // 地面顏色
-		mShader->setUniformFloat4("spheres[2]", 0.0f, 0.0f, -1.2f, 0.3f); // 大球
-		mShader->setUniformFloat4("spheres[3]", 1.0f, 0.0f, 0.0f, 0.0f); // 大球顏色
+		mShader->setUniformFloat4("spheres[2]", 0.0f+xkeyOffset, 0.0f+ykeyOffset, -1.2f+ zkeyOffset, size); // 大球
+		mShader->setUniformFloat4("spheres[3]", light, light, light, 0.0f); // 大球顏色
 		mShader->setUniformFloat4("spheres[4]", -0.7f, -0.3f, -1.0f, 0.2f); // 左球
 		mShader->setUniformFloat4("spheres[5]", 0.0f, 1.0f, 0.0f, 0.0f); // 左球顏色
+		mShader->setUniformFloat4("spheres[6]", -0.3f, -0.3f, -1.0f, 0.2f); // 右球
+		mShader->setUniformFloat4("spheres[7]", 1.0f, 0.0f, 0.0f, 0.0f); // 右球顏色
 		mShader->setUniformFloat3("cameraPos", 0.0f, 0.0f, 0.0f);
 		mShader->setUniformFloat3("cameraTarget", 0.0f, 0.0f, -1.0f);
 		mShader->setUniformFloat1("cameraFov", 1.5f);
@@ -82,7 +89,7 @@ public:
 		mShader->setUniformFloat3("backgroundColor", 0.6f, 0.8f, 1.0f);
 		mShader->setUniformInt("sphereCount", 4);
 		mShader->setUniformInt("max_depth", 10);
-		mShader->setUniformFloat3("offset", xNorm + xkeyOffset, yNorm + ykeyOffset, yNorm + ykeyOffset);
+		//mShader->setUniformFloat3("offset", xNorm + xkeyOffset, yNorm + ykeyOffset, yNorm + ykeyOffset);
 
 	}
 	void render() override
@@ -95,6 +102,15 @@ public:
 	void imguiRender() override
 	{
 		ImGui::ShowDemoWindow();
+		if (ImGui::Begin("Test1"))
+		{
+			ImGui::DragFloat("PositionX", &xkeyOffset, 0.01f);
+			ImGui::DragFloat("PositionY", &ykeyOffset, 0.01f);
+			ImGui::DragFloat("PositionZ", &zkeyOffset, 0.01f);
+			ImGui::DragFloat("light", &light, 1);
+			ImGui::DragFloat("size", &size, 0.1f);
+		}
+		ImGui::End();
 	}
 
 };

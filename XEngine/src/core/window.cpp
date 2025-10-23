@@ -87,8 +87,15 @@ namespace XEngine::core
 
 
 		// Update input
-		input::Mouse::update();
-		input::Keyboard::update();
+		if (!mImguiwindow.wantCaptureMouse())
+		{
+			input::Mouse::update();
+		}
+		if (!mImguiwindow.wantCaptureKeyboard())
+		{
+			input::Keyboard::update();
+		}
+		
 	}
 
 	void Window::beginRender()

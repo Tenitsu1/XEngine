@@ -32,6 +32,16 @@ namespace XEngine::core
 		ImGui_ImplSDL3_ProcessEvent(&e);
 	}
 
+	bool ImguiWindow::wantCaptureMouse()
+	{
+		return ImGui::GetIO().WantCaptureMouse;
+	}
+
+	bool ImguiWindow::wantCaptureKeyboard()
+	{
+		return ImGui::GetIO().WantCaptureKeyboard;
+	}
+
 	void ImguiWindow::beginRender()
 	{ 
 		ImGui_ImplOpenGL3_NewFrame();
