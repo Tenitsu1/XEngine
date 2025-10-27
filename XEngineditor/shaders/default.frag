@@ -161,7 +161,8 @@
 					// ¤ÑªÅº¥¼h
 					vec3 unit_direction = normalize(rayDir);
 					float a = 0.5 * (unit_direction.y + 1.0);
-					vec3 sky = mix(vec3(1.0, 1.0, 1.0), backgroundColor, a);
+					//vec3 sky = mix(vec3(1.0, 1.0, 1.0), backgroundColor, a);
+					vec3 sky = vec3(0.01, 0.01, 0.01);
 					color += attenuation * sky;
 					break;
 				}

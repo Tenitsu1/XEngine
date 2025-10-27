@@ -1,4 +1,5 @@
 #pragma once
+#include "core/window.h"
 
 namespace XEngine
 {
@@ -7,6 +8,8 @@ namespace XEngine
 	public:
 		App() {}
 		~App() {}
+
+		virtual core::WindowProperties getWindowProperties() { return core::WindowProperties(); }
 
 		virtual void initialize() {};
 		virtual void shutdown() {};

@@ -5,8 +5,11 @@
 #include "SDL3/SDL.h"
 #include "glad/glad.h"
 #include "external/imgui/imgui.h"
+#include "external/imgui/imgui_impl_sdl3.h"
+
 
 #include "app.h"
+#include "graphics/framebuffer.h"
 
 #include "input/mouse.h"
 #include "input/keyboard.h"
@@ -15,6 +18,18 @@
 
 namespace XEngine::core
 {
+	WindowProperties::WindowProperties()
+	{
+		title = "RayTracing Project";
+		width = 1280;
+		height = 720;
+		ccR = 1.0f;
+		ccG = 1.0f;
+		ccB = 1.0f;
+		flags = SDL_WINDOW_OPENGL;
+	}
+
+
 	Window::Window() : mWindow(nullptr), mGLContext(nullptr){}
 	Window::~Window()
 	{
@@ -25,9 +40,9 @@ namespace XEngine::core
 	}
 
 
-	bool Window::create()
+	bool Window::create(const WindowProperties& props)
 	{
-		mWindow = SDL_CreateWindow("RayTracing", 1200, 768 ,SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+		mWindow = SDL_CreateWindow(props.title.c_str(), props.width, props.height, props.flags);
 		if (!mWindow)
 		{
 			XENGINE_ERROR("Error creating windows: {}", SDL_GetError());
@@ -41,6 +56,7 @@ namespace XEngine::core
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+		SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
 
 		SDL_SetWindowMinimumSize(mWindow, 200, 200);
@@ -56,7 +72,10 @@ namespace XEngine::core
 		
 		SDL_GL_SetSwapInterval(0); // disable vsync
 
-		mImguiwindow.create();
+		mFramebuffer = std::make_shared<graphics::Framebuffer>(props.width, props.height);
+		mFramebuffer->setClearColor(props.ccR, props.ccG, props.ccB, 1.0f);
+
+		mImguiwindow.create(props.imguiProps);
 		return true;
 	}
 
@@ -70,12 +89,12 @@ namespace XEngine::core
 
 	void Window::pumpEvents()
 	{
-		SDL_Event e;
-		while (SDL_PollEvent(&e))
+		SDL_Event event;
+		while (SDL_PollEvent(&event))
 		{
-			mImguiwindow.handleSDLEvent(e);
-			//ImGui_ImplSDL3_ProcessEvent(&e); // MAKE ImGui FIRST !!
-			switch (e.type)
+			mImguiwindow.handleSDLEvent(event);
+			//ImGui_ImplSDL3_ProcessEvent(&event); // MAKE ImGui FIRST !!
+			switch (event.type)
 			{
 			case SDL_EVENT_QUIT:
 				Engine::Instance().quit();
@@ -101,11 +120,16 @@ namespace XEngine::core
 	void Window::beginRender()
 	{
 		Engine::Instance().getRenderManager().clear();
+		auto cmd = std::make_unique<graphics::rendercommands::PushFramebuffer>(mFramebuffer);
+		Engine::Instance().getRenderManager().submit(std::move(cmd));
 	}
 
 	void Window::endRender()
 	{
 		
+		auto cmd = std::make_unique<graphics::rendercommands::PopFramebuffer>();
+		Engine::Instance().getRenderManager().submit(std::move(cmd));
+		Engine::Instance().getRenderManager().fulsh();
 		mImguiwindow.beginRender();
 		Engine::Instance().getApp().imguiRender();
 		mImguiwindow.endRender();

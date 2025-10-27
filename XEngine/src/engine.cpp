@@ -65,7 +65,8 @@ namespace XEngine
 		getInfo();
 		core::Window::checkSDLVersion();
 
-		if (mWindow.create())
+		core::WindowProperties props = mApp->getWindowProperties();
+		if (mWindow.create(props))
 		{
 			// initialize Managers
 			mRenderManager.initialize();

@@ -10,13 +10,13 @@ namespace XEngine::graphics
 	class Shader
 	{
 	public:
-		Shader(const char* vertexPath, const char* fragmentPath);
+		Shader(const char* vertexPath, const char* fragmentPath, const char* computePath);
 		~Shader();
 
 		void bind();
 		void unbind();
 
-		void readFile(const char* vertexPath, const char* fragmentPath);
+		
 
 		void setUniformInt(const std::string& name, int val);
 		void setUniformFloat1(const std::string& name, float val1);
@@ -27,13 +27,13 @@ namespace XEngine::graphics
 
 	private:
 		int getUniformLoctaion(const std::string& name);
+		void readFile(const char* shaderPath);
 
 
 	private:
 		uint32_t mProgramId;
 		std::unordered_map<std::string, int> mUniformLocations;
-		std::string vertexCode;
-		std::string fragmentCode;
+		std::string shaderCode;
 	};
 
 }

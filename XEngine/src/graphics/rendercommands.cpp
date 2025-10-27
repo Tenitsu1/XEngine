@@ -3,6 +3,8 @@
 
 #include "graphics/mesh.h"
 #include "graphics/shader.h"
+#include "graphics/framebuffer.h"
+#include "engine.h"
 
 #include "glad/glad.h"
 
@@ -34,5 +36,23 @@ namespace XEngine::graphics::rendercommands
 		{
 			XENGINE_WARN("Attempting to execute RenderMesh with invalid data");
 		}
+	}
+
+	void PushFramebuffer::execute()
+	{
+		std::shared_ptr<Framebuffer> fb = mFramebuffer.lock();
+		if (fb)
+		{
+			Engine::Instance().getRenderManager().pushFramebuffer(fb);
+		}
+		else
+		{
+			XENGINE_WARN("Attempting to execute PushFramebuffer with invalid data")
+		}
+	}
+
+	void PopFramebuffer::execute()
+	{
+		Engine::Instance().getRenderManager().popFramebuffer();
 	}
 }

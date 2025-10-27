@@ -5,11 +5,14 @@
 
 #include "XEngine/graphics/mesh.h"
 #include "XEngine/graphics/shader.h"
+#include "XEngine/graphics/framebuffer.h"
+
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
 
 #include "external/imgui/imgui.h"
+
 
 using namespace XEngine;
 
@@ -19,14 +22,27 @@ private:
 	std::shared_ptr<graphics::Mesh> mMesh;
 	std::shared_ptr<graphics::Shader> mShader;
 
-	float light = 0.f;
+	float light = 1000.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
 	float zkeyOffset = 0.f;
 	float keySpeed = 0.005f;
-	float size = 1.0f;
+	float size = 0.5f;
+	float samples_per_pixel = 50;
 
 public:
+
+	core::WindowProperties getWindowProperties()
+	{
+		core::WindowProperties props;
+		props.title = "RayTracing Projecrelihifejpiot";
+		props.width = 1600;
+		props.height = 900;
+		props.imguiProps.isViewportEnable = true;
+		props.imguiProps.isDockingEnable = true;
+		return props;
+	}
+
 	void initialize() override
 	{
 		// Test Mesh
@@ -50,7 +66,7 @@ public:
 				1, 3, 2
 		};
 		mMesh = std::make_shared<graphics::Mesh>(&vertice[0], 4, 2, &elements[0], 6);
-		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag");
+		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag", "shaders\\default.comp");
 		//shader->setUniformFloat3("color", 255, 0, 0);
 	}
 	void shutdown() override
@@ -76,8 +92,8 @@ public:
 		mShader->setUniformInt("sphereCount", 4);
 		mShader->setUniformFloat4("spheres[0]", 0.0f, -100.5f, -1.0f, 100.0f); // 地面
 		mShader->setUniformFloat4("spheres[1]", 0.2f, 0.8f, 0.2f, 0.0f); // 地面顏色
-		mShader->setUniformFloat4("spheres[2]", 0.0f+xkeyOffset, 0.0f+ykeyOffset, -1.2f+ zkeyOffset, size); // 大球
-		mShader->setUniformFloat4("spheres[3]", light, light, light, 0.0f); // 大球顏色
+		mShader->setUniformFloat4("spheres[2]", 0.5f+xkeyOffset, 0.5f+ykeyOffset, -1.2f+ zkeyOffset, size); // 大球
+		mShader->setUniformFloat4("spheres[3]", light, light , light, 0.0f); // 大球顏色
 		mShader->setUniformFloat4("spheres[4]", -0.7f, -0.3f, -1.0f, 0.2f); // 左球
 		mShader->setUniformFloat4("spheres[5]", 0.0f, 1.0f, 0.0f, 0.0f); // 左球顏色
 		mShader->setUniformFloat4("spheres[6]", -0.3f, -0.3f, -1.0f, 0.2f); // 右球
@@ -85,7 +101,7 @@ public:
 		mShader->setUniformFloat3("cameraPos", 0.0f, 0.0f, 0.0f);
 		mShader->setUniformFloat3("cameraTarget", 0.0f, 0.0f, -1.0f);
 		mShader->setUniformFloat1("cameraFov", 1.5f);
-		mShader->setUniformFloat1("samples_per_pixel", 100.0f);
+		mShader->setUniformFloat1("samples_per_pixel", samples_per_pixel);
 		mShader->setUniformFloat3("backgroundColor", 0.6f, 0.8f, 1.0f);
 		mShader->setUniformInt("sphereCount", 4);
 		mShader->setUniformInt("max_depth", 10);
@@ -101,14 +117,36 @@ public:
 
 	void imguiRender() override
 	{
+		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID);
+		/*ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID);*/
+		//ImGuiDockNodeFlags_PassthruCentralNode
+		
 		ImGui::ShowDemoWindow();
+
 		if (ImGui::Begin("Test1"))
 		{
 			ImGui::DragFloat("PositionX", &xkeyOffset, 0.01f);
 			ImGui::DragFloat("PositionY", &ykeyOffset, 0.01f);
 			ImGui::DragFloat("PositionZ", &zkeyOffset, 0.01f);
+		}
+		ImGui::End();
+		if (ImGui::Begin("Test2"))
+		{
 			ImGui::DragFloat("light", &light, 1);
-			ImGui::DragFloat("size", &size, 0.1f);
+			ImGui::DragFloat("size", &size, 0.01f);
+			ImGui::DragFloat("samples_per_pixel", &samples_per_pixel, 0.1f);
+		}
+		ImGui::End();
+
+		if (ImGui::Begin("Sence"))
+		{
+			if (ImGui::IsItemHovered() || ImGui::IsWindowHovered())
+			{
+				ImGui::SetNextFrameWantCaptureMouse(false);
+			}
+			auto& window = Engine::Instance().getWindow();
+
+			ImGui::Image((void*)(intptr_t)window.getFramebuffer()->getTextureId(), {1280, 720 }, ImVec2(0, 1), ImVec2(1, 0));
 		}
 		ImGui::End();
 	}

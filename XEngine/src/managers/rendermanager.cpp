@@ -4,6 +4,7 @@
 
 #include "glad/glad.h"
 #include "graphics/helper.h "
+#include "graphics/framebuffer.h"
 
 namespace XEngine::managers
 {
@@ -68,6 +69,35 @@ namespace XEngine::managers
 			mRenderCommands.pop();
 		}
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	}
+
+	void RenderManager::pushFramebuffer(std::shared_ptr<graphics::Framebuffer> framebuffer)
+	{
+		mFramebuffers.push(framebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->getFbo());
+
+		float r, g, b, a;
+		framebuffer->getClearColor(r, g, b, a);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	}
+
+	void RenderManager::popFramebuffer()
+	{
+		XENGINE_ASSERT(mFramebuffers.size() > 0, "RenderManager::popFramebuffer - empty stack");
+		if (mFramebuffers.size()>0)
+		{
+			mFramebuffers.pop();
+			if (mFramebuffers.size() > 0)
+			{
+				auto nextfb = mFramebuffers.top();
+				glBindFramebuffer(GL_FRAMEBUFFER, nextfb->getFbo());
+			}
+			else
+			{
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			}
+		}
 	}
 
 }

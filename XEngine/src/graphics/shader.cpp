@@ -1,51 +1,28 @@
 #include "graphics/shader.h"
 #include "log.h"
+#include "graphics/helper.h"
 
 #include "glad/glad.h"
 
-//std::string get_file_contents(const std::string& filename)
-//{
-//	std::ifstream in(filename, std::ios::binary);
-//	if (in)
-//	{
-//		std::string contents;
-//		in.seekg(0, std::ios::end);
-//		contents.resize(in.tellg());
-//		in.seekg(0, std::ios::beg);
-//		in.read(&contents[0], contents.size());
-//		in.close();
-//		return(contents);
-//	}
-//	throw(errno);
-//}
 
 namespace XEngine::graphics
 {
-	void Shader::readFile(const char* vertexPath, const char* fragmentPath)
+	// Read file
+	void Shader::readFile(const char* shaderPath)
 	{
-		std::ifstream vertexFile;
-		std::ifstream fragmentFile;
-		vertexFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-		fragmentFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-
+		std::ifstream shaderFile;
+		shaderFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 		try
 		{
-			vertexFile.open(vertexPath);
-			if (!vertexFile.is_open()) {
-				throw std::runtime_error("Could not open vertex shader file.");
+			shaderFile.open(shaderPath);
+			if (!shaderFile.is_open()) {
+				throw std::runtime_error("Could not open shader file.");
 			}
 
-			fragmentFile.open(fragmentPath);
-			if (!fragmentFile.is_open()) {
-				throw std::runtime_error("Could not open fragment shader file.");
-			}
+			std::stringstream shaderStream;
+			shaderStream << shaderFile.rdbuf();
 
-			std::stringstream vertexStream, fragmentStream;
-			vertexStream << vertexFile.rdbuf();
-			fragmentStream << fragmentFile.rdbuf();
-
-			vertexCode = vertexStream.str();
-			fragmentCode = fragmentStream.str();
+			shaderCode = shaderStream.str();
 		}
 		catch (const std::ifstream::failure& e)
 		{
@@ -61,12 +38,9 @@ namespace XEngine::graphics
 		}
 	}
 
-	Shader::Shader(const char* vertexPath, const char* fragmentPath)
+	Shader::Shader(const char* vertexPath, const char* fragmentPath, const char* computePath)
 	{
-		
-		readFile(vertexPath, fragmentPath);
-		
-		
+
 		mProgramId = glCreateProgram();
 		
 
@@ -77,7 +51,8 @@ namespace XEngine::graphics
 		// Vertex Shader
 		uint32_t vertexShaderId = glCreateShader(GL_VERTEX_SHADER); 
 		{	
-			const GLchar* glSource = vertexCode.c_str();
+			readFile(vertexPath);
+			const GLchar* glSource = shaderCode.c_str();
 			glShaderSource(vertexShaderId, 1, &glSource, NULL); 
 			glCompileShader(vertexShaderId); 
 			glGetShaderiv(vertexShaderId, GL_COMPILE_STATUS, &status); 
@@ -90,14 +65,14 @@ namespace XEngine::graphics
 				return;
 			}
 			glAttachShader(mProgramId, vertexShaderId); 
-			
 		}
 
 		// Fragment Shader
 		uint32_t fragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER); 
 		if(status == GL_TRUE)
 		{
-			const GLchar* glSource = fragmentCode.c_str();
+			readFile(fragmentPath);
+			const GLchar* glSource = shaderCode.c_str();
 			glShaderSource(fragmentShaderId, 1, &glSource, NULL); 
 			glCompileShader(fragmentShaderId); 
 			glGetShaderiv(fragmentShaderId, GL_COMPILE_STATUS, &status); 
@@ -110,7 +85,27 @@ namespace XEngine::graphics
 				return;
 			}
 			glAttachShader(mProgramId, fragmentShaderId);
-			
+		}
+
+		// Compute Shader
+		uint32_t computerShaderId = glCreateShader(GL_COMPUTE_SHADER);
+		{
+			readFile(computePath);
+			XENGINE_INFO("Shader code length: {}", shaderCode.length());
+			XENGINE_INFO("Shader code: {}", shaderCode);
+			const GLchar* glSource = shaderCode.c_str();
+			glShaderSource(computerShaderId, 1, &glSource, NULL);
+			glCompileShader(computerShaderId);
+			glGetShaderiv(computerShaderId, GL_COMPILE_STATUS, &status);
+			if (status != GL_TRUE)
+			{
+				glGetShaderInfoLog(computerShaderId, sizeof(errorLog), NULL, errorLog);
+				XENGINE_ERROR("Compute Shader compilation error: {}", errorLog);
+				glDeleteShader(computerShaderId);
+				glDeleteProgram(mProgramId);
+				return;
+			}
+			/*glAttachShader(mProgramId, computerShaderId);*/XENGINE_INFO("test");
 		}
 
 		XENGINE_ASSERT(status == GL_TRUE, "Error compiling shader");
@@ -130,7 +125,7 @@ namespace XEngine::graphics
 
 		glDeleteShader(vertexShaderId); 
 		glDeleteShader(fragmentShaderId); 
-
+		glDeleteShader(computerShaderId);
 	}
 
 	Shader::~Shader()
