@@ -23,9 +23,7 @@ namespace XEngine::core
 		title = "RayTracing Project";
 		width = 1280;
 		height = 720;
-		ccR = 1.0f;
-		ccG = 1.0f;
-		ccB = 1.0f;
+		clearColor = glm::vec3(0);
 		flags = SDL_WINDOW_OPENGL;
 	}
 
@@ -73,7 +71,8 @@ namespace XEngine::core
 		SDL_GL_SetSwapInterval(0); // disable vsync
 
 		mFramebuffer = std::make_shared<graphics::Framebuffer>(props.width, props.height);
-		mFramebuffer->setClearColor(props.ccR, props.ccG, props.ccB, 1.0f);
+		glm::vec4 clearColor{ props.clearColor.r, props.clearColor.g , props.clearColor.b , 1.0f };
+		mFramebuffer->setClearColor(clearColor);
 
 		mImguiwindow.create(props.imguiProps);
 		return true;
@@ -136,9 +135,11 @@ namespace XEngine::core
 		SDL_GL_SwapWindow(mWindow);
 	}
 
-	void Window::getWindowSize(int& w, int& h)
+	glm::ivec2 Window::getWindowSize()
 	{
+		int w, h;
 		SDL_GetWindowSize(mWindow, &w, &h);
+		return glm::ivec2(w, h);
 	}
 
 	void Window::checkSDLVersion()

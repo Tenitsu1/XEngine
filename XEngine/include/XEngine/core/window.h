@@ -4,6 +4,8 @@
 #include <string>
 #include <memory>
 
+#include "external/glm/glm.hpp"
+
 namespace XEngine::graphics
 {
 	class Framebuffer;
@@ -23,7 +25,7 @@ namespace XEngine::core
 		std::string title;
 		int width, height;
 		int flags;
-		float ccR, ccG, ccB;
+		glm::vec3 clearColor;
 		ImguiWindowProperties imguiProps;
 		WindowProperties();
 	};
@@ -42,7 +44,7 @@ namespace XEngine::core
 		void pumpEvents();
 
 		static void checkSDLVersion();
-		void getWindowSize(int& w, int& h);
+		glm::ivec2 getWindowSize();
 
 		inline SDL_Window* getSDLWindow() { return mWindow; }
 		inline SDL_GLContext getGLContext() { return mGLContext; }

@@ -6,6 +6,7 @@ namespace XEngine::graphics
 {
 	class Mesh;
 	class Shader;
+	class Texture;
 	class Framebuffer;
 
 	namespace rendercommands
@@ -26,9 +27,27 @@ namespace XEngine::graphics
 			{}
 			virtual void execute() override;
 
+		private: 
+			std::weak_ptr<Mesh> mMesh;
+			std::weak_ptr<Shader> mShader;
+		};
+
+
+		class RenderMeshTexture : public RenderCommand
+		{
+		public:
+			RenderMeshTexture(std::weak_ptr<Mesh> mesh, std::weak_ptr<Texture> texture ,std::weak_ptr<Shader> shader)
+				: mMesh(mesh)
+				, mTexture(texture)
+				, mShader(shader)
+			{
+			}
+			virtual void execute() override;
+
 		private:
 			std::weak_ptr<Mesh> mMesh;
 			std::weak_ptr<Shader> mShader;
+			std::weak_ptr<Texture> mTexture;
 		};
 
 		class PushFramebuffer : public RenderCommand

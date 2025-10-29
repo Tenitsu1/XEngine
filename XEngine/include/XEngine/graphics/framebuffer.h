@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "external/glm/glm.hpp"
+
 namespace XEngine::graphics
 {
 	class Framebuffer
@@ -13,16 +15,17 @@ namespace XEngine::graphics
 		inline uint32_t getFbo() const { return mFbo; }
 		inline uint32_t getTextureId() const { return mTextureId; }
 		inline uint32_t getRenderbuffer() const { return mRenderbuffer; }
-		inline void getSize(uint32_t& w, uint32_t& h) { w = mWidth; h = mHeight; }
-		inline void setClearColor(float r, float g, float b, float a) { mCCR = r; mCCG = g; mCCB = b; mCCA = a;}
-		inline void getClearColor(float& r, float& g, float& b, float& a) { r = mCCR; g = mCCG; b = mCCB; a = mCCA; }
+		inline glm::ivec2& getSize() { return mSize; }
+		inline void setClearColor(const glm::vec4& clearColor) { mClearColor = clearColor;}
+		inline glm::vec4& getClearColor() { return mClearColor; }
 
 	private:
 		uint32_t mFbo;
 		uint32_t mTextureId;
 		uint32_t mRenderbuffer;
 
-		uint32_t mWidth, mHeight;
-		float mCCR, mCCG, mCCB, mCCA;
+		glm::ivec2 mSize;
+		glm::vec4 mClearColor;
+		
 	};
 }

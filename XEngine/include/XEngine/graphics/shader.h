@@ -3,6 +3,8 @@
 #include<fstream>
 #include<sstream>
 
+#include "external/glm/glm.hpp"
+
 #include <unordered_map>
 
 namespace XEngine::graphics
@@ -24,6 +26,12 @@ namespace XEngine::graphics
 		void setUniformFloat3(const std::string& name, float val1, float val2, float val3);
 		void setUniformFloat4(const std::string& name, float val1, float val2, float val3, float val4);
 
+		void setUniformFloat2(const std::string& name, const glm::vec2& val);
+		void setUniformFloat3(const std::string& name, const glm::vec3& val);
+		void setUniformFloat4(const std::string& name, const glm::vec4& val);
+
+		void setUniformMat3(const std::string& name, const glm::mat3& mat);
+		void setUniformMat4(const std::string& name, const glm::mat4& mat);
 
 	private:
 		int getUniformLoctaion(const std::string& name);

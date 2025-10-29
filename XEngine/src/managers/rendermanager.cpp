@@ -39,9 +39,9 @@ namespace XEngine::managers
 		}
 	}
 
-	void RenderManager::setClearColor(float r, float g, float b, float a)
+	void RenderManager::setClearColor(const glm::vec4 clearColor)
 	{
-		glClearColor(r, g, b, a);
+		glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
 
 	}
 
@@ -76,8 +76,8 @@ namespace XEngine::managers
 		mFramebuffers.push(framebuffer);
 		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->getFbo());
 
-		float r, g, b, a;
-		framebuffer->getClearColor(r, g, b, a);
+		auto clearColor = framebuffer->getClearColor();
+		glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	}

@@ -66,56 +66,36 @@ namespace XEngine::graphics
 		glBindVertexArray(0);
 	}
 
+
+	// Texture
+	Mesh::Mesh(float* vertexArray, uint32_t vertexCount, uint32_t dimensions, float* texCoords, uint32_t* elementArray, uint32_t elementCount)
+		: Mesh(vertexArray, vertexCount, dimensions, elementArray, elementCount)
+	{
+		glBindVertexArray(mVao);
+
+		glGenBuffers(1, &mTexCoordsVbo);
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoordsVbo);
+		// Since images are usually two-dimensional, simply multiply by 2.
+		glBufferData(GL_ARRAY_BUFFER, vertexCount * 2 * sizeof(float), texCoords, GL_STATIC_DRAW);
+
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+		/* forgot to update glDisableVertexAttribArray
+		we don't actually want to disable attribute 1
+		we should just remove this line
+		This will be a non - issue when we refactor out the Mesh class*/ 	
+		glDisableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+		glBindVertexArray(0);
+	}
+
 	Mesh::~Mesh()
 	{
 		glDeleteBuffers(1, &mPositionVbo);
 		glDeleteBuffers(1, &mEbo);
 		glDeleteVertexArrays(1, &mVao);
 	}
-
-
-	//Mesh::Mesh(float* vertexArray, uint32_t vertexCount, uint32_t dimensions) 
-	//	: mVertexCount(vertexCount)
-	//	, mEbo(0)
-	//	, mElementCount(0)
-	//{
-	//	glGenVertexArrays(1, &mVao); 
-	//	glBindVertexArray(mVao); 
-
-	//	glGenBuffers(1, &mPositionVbo); 
-	//	glBindBuffer(GL_ARRAY_BUFFER, mPositionVbo); 
-	//	glBufferData(GL_ARRAY_BUFFER, vertexCount * dimensions * sizeof(float),vertexArray, GL_STATIC_DRAW); 
-
-	//	glEnableVertexAttribArray(0); 
-	//	glVertexAttribPointer(0, dimensions, GL_FLOAT, GL_FALSE, 0, 0); 
-	//	glDisableVertexAttribArray(0); 
-	//	glBindBuffer(GL_ARRAY_BUFFER, 0); 
-
-	//	glBindVertexArray(0); 
-	//}
-
-	//Mesh::Mesh(float* vertexArray, uint32_t vertexCount, uint32_t dimensions, uint32_t* elementArray, uint32_t elementCount)
-	//	: Mesh(vertexArray, vertexCount, dimensions)
-	//{
-	//	mElementCount = elementCount;
-	//	glBindVertexArray(mVao);
-
-	//	glGenBuffers(1, &mEbo);
-	//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mEbo);
-	//	glBufferData(GL_ELEMENT_ARRAY_BUFFER, elementCount * sizeof(uint32_t), elementArray, GL_STATIC_DRAW);
-
-	//	glBindVertexArray(0);
-	//}
-
-	//Mesh::~Mesh()
-	//{
-	//	glDeleteBuffers(1, &mPositionVbo); 
-	//	if (mEbo != 0)
-	//	{
-	//		glDeleteBuffers(1, &mEbo);
-	//	}
-	//	glDeleteVertexArrays(1, &mVao); 
-	//}
 
 	void Mesh::bind()
 	{

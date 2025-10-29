@@ -4,6 +4,8 @@
 
 #include "glad/glad.h"
 
+#include "external/glm/gtc/type_ptr.hpp"
+
 
 namespace XEngine::graphics
 {
@@ -168,6 +170,36 @@ namespace XEngine::graphics
 		glUseProgram(mProgramId);
 		glUniform4f(static_cast<GLint>(getUniformLoctaion(name)), val1, val2, val3, val4);
 	}
+
+	void Shader::setUniformFloat2(const std::string& name, const glm::vec2& val)
+	{
+		setUniformFloat2(name, val.x, val.y);
+	}
+
+	void Shader::setUniformFloat3(const std::string& name, const glm::vec3& val)
+	{
+		setUniformFloat3(name, val.x, val.y, val.z);
+	}
+
+	void Shader::setUniformFloat4(const std::string& name, const glm::vec4& val)
+	{
+		setUniformFloat4(name, val.x, val.y, val.z, val.w);
+	}
+
+
+	void Shader::setUniformMat3(const std::string& name, const glm::mat3& mat)
+	{
+		glUseProgram(mProgramId);
+		glUniformMatrix3fv(getUniformLoctaion(name), 1, GL_FALSE, glm::value_ptr(mat));
+	}
+
+	void Shader::setUniformMat4(const std::string& name, const glm::mat4& mat)
+	{
+		glUseProgram(mProgramId);
+		glUniformMatrix4fv(getUniformLoctaion(name), 1, GL_FALSE, glm::value_ptr(mat));
+	}
+
+
 	int Shader::getUniformLoctaion(const std::string& name)
 	{
 		auto it = mUniformLocations.find(name);

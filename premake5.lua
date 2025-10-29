@@ -14,6 +14,7 @@ externals = {}
 externals["sdl3"] = "external/SDL3"
 externals["spdlog"] = "external/spdlog"
 externals["glad"] = "external/glad"
+-- externals["tinygltf"] = "external/tinygltf"
 -- externals["imgui"] = "external/imgui"
 
 -- Run premake5.lua in Glad first
@@ -47,7 +48,8 @@ project "XEngine"
 		"%{prj.name}/include/XEngine",
 		"%{externals.sdl3}/include",
 		"%{externals.spdlog}/include",
-		"%{externals.glad}/include"
+		"%{externals.glad}/include",
+		-- "%{externals.tinygltf}/include"
 		-- "%{externals.imgui}"
 	}
 
@@ -117,7 +119,11 @@ project "XEngineditor"
 		"%{prj.name}/src/**.h",
 		"%{prj.name}/src/**.cpp",
 		"%{prj.name}/shaders/**.vert",
-		"%{prj.name}/shaders/**.frag"
+		"%{prj.name}/shaders/**.frag",
+		"%{prj.name}/models/**.bin",
+		"%{prj.name}/models/**.glb",
+		"%{prj.name}/models/**.gltf",
+		"%{prj.name}/image/**"
 	}
 
 	externalincludedirs
@@ -163,8 +169,8 @@ project "XEngineditor"
 			"XENGINE_PLATFORM_LINUX"
 		}
 
-	filter {"configurations:Debug"}
-		defines
+	filter {"configurations:Debug"
+		}defines
 		{
 			"XENGINE_CONFIG_DEBUG"
 		}

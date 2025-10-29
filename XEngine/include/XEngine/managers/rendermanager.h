@@ -5,6 +5,8 @@
 #include <stack>
 #include <memory>
 
+#include "external/glm/glm.hpp"
+
 namespace XEngine::managers
 {
 	class RenderManager
@@ -20,7 +22,7 @@ namespace XEngine::managers
 		void shutdown();
 
 		void clear();
-		void setClearColor(float r, float g, float b, float a);
+		void setClearColor(const glm::vec4 clearColor);
 
 		void submit(std::unique_ptr<graphics::rendercommands::RenderCommand> rc);
 
