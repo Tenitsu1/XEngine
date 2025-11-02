@@ -1,7 +1,7 @@
 #include "graphics/rendercommands.h"
 #include "log.h"
 
-#include "graphics/mesh.h"
+#include "graphics/vertexbuffer.h"
 #include "graphics/shader.h"
 #include "graphics/texture.h"
 #include "graphics/framebuffer.h"
@@ -11,62 +11,62 @@
 
 namespace XEngine::graphics::rendercommands
 {
-	void RenderMesh::execute()
+	void RenderVertexArray::execute()
 	{
-		std::shared_ptr<Mesh> mesh = mMesh.lock();
+		std::shared_ptr<VertexArray> vertexArray = mVertexArray.lock();
 		std::shared_ptr<Shader> shader = mShader.lock();
-		if (mesh && shader)
+		if (vertexArray && shader)
 		{
-			mesh->bind();
+			vertexArray->bind();
 			shader->bind();
 
-			if (mesh->getElementCount() > 0)
+			if (vertexArray->getElementCount() > 0)
 			{
-				glDrawElements(GL_TRIANGLES, mesh->getElementCount(), GL_UNSIGNED_INT, 0);
+				glDrawElements(GL_TRIANGLES, vertexArray->getElementCount(), GL_UNSIGNED_INT, 0);
 			}
 			else
 			{
-				glDrawArrays(GL_TRIANGLE_STRIP,0, mesh->getVertexCount());
+				glDrawArrays(GL_TRIANGLE_STRIP,0, vertexArray->getVertexCount());
 			}
 			
 
 			shader->unbind();
-			mesh->unbind();
+			vertexArray->unbind();
 		}
 		else
 		{
-			XENGINE_WARN("Attempting to execute RenderMesh with invalid data");
+			XENGINE_WARN("Attempting to execute RenderVertexArray with invalid data");
 		}
 	}
 
-	void RenderMeshTexture::execute()
+	void RenderVertexArrayTexture::execute()
 	{
-		std::shared_ptr<Mesh> mesh = mMesh.lock();
+		std::shared_ptr<VertexArray> vertexArray = mVertexArray.lock();
 		std::shared_ptr<Texture> texture = mTexture.lock();
 		std::shared_ptr<Shader> shader = mShader.lock();
-		if (mesh && shader)
+		if (vertexArray && shader)
 		{
-			mesh->bind();
+			vertexArray->bind();
 			texture->bind();
 			shader->bind();
 
-			if (mesh->getElementCount() > 0)
+			if (vertexArray->getElementCount() > 0)
 			{
-				glDrawElements(GL_TRIANGLES, mesh->getElementCount(), GL_UNSIGNED_INT, 0);
+				glDrawElements(GL_TRIANGLES, vertexArray->getElementCount(), GL_UNSIGNED_INT, 0);
 			}
 			else
 			{
-				glDrawArrays(GL_TRIANGLE_STRIP, 0, mesh->getVertexCount());
+				glDrawArrays(GL_TRIANGLE_STRIP, 0, vertexArray->getVertexCount());
 			}
 
 
 			shader->unbind();
 			texture->unbind();
-			mesh->unbind();
+			vertexArray->unbind();
 		}
 		else
 		{
-			XENGINE_WARN("Attempting to execute RenderMesh with invalid data");
+			XENGINE_WARN("Attempting to execute RenderVertexArrayTexture with invalid data");
 		}
 	}
 

@@ -40,7 +40,7 @@ namespace XEngine::graphics
 		}
 		else
 		{
-			XENGINE_INFO("Loaded gltf : {}", filename);
+			XENGINE_TRACE("Loaded gltf : {}", filename);
 		}
 
 		VAO_and_EBOs = bindModel();
@@ -115,7 +115,7 @@ namespace XEngine::graphics
 
 			const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
 
-			uint32_t mEbo;
+			GLuint mEbo;
 			glGenBuffers(1, &mEbo);
 			mEbos[i] = mEbo;
 			glBufferData(
@@ -144,7 +144,7 @@ namespace XEngine::graphics
 					if (attrib.first.compare("POSITION") == 0) { attribute = 0; }
 					if (attrib.first.compare("TEXCOORD_0") == 0) { attribute = 1; }
 					if (attrib.first.compare("NORMAL") == 0) { attribute = 2; }
-					if (attribute > 0)
+					if (attribute >= 0)
 					{
 						glEnableVertexAttribArray(attribute);
 						glVertexAttribPointer(
@@ -157,4 +157,46 @@ namespace XEngine::graphics
 			}
 		}
 	}
+
+	/*void GLTFStaticMesh::prepareForDrawing()
+	{ 
+		glBindVertexArray(VAO_and_EBOs.first);
+	}
+
+	void GLTFStaticMesh::draw() 
+	{
+		const tinygltf::Scene& scene = model.scenes[model.defaultScene];
+		for (size_t i = 0; i < scene.nodes.size(); ++i)
+		{
+			drawModelNodes(model.nodes[scene.nodes[i]]);
+		}
+	}
+
+	void GLTFStaticMesh::drawModelNodes(tinygltf::Node& node)
+	{
+		if ((node.mesh >= 0) && (node.mesh < model.meshes.size()))
+		{
+			drawMesh(VAO_and_EBOs.second, model.meshes[node.mesh]);
+		}
+		for (size_t i = 0; i < node.children.size(); ++i)
+		{
+			drawModelNodes(model.nodes[node.children[i]]);
+		}
+	}
+
+	void GLTFStaticMesh::drawMesh(const std::map<int, unsigned int>& mEbos, tinygltf::Mesh& mesh) 
+	{
+		for (int i = 0; i < mesh.primitives.size(); ++i)
+		{
+			tinygltf::Primitive& primitive = mesh.primitives[i];
+			tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
+
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mEbos.at(indexAccessor.bufferView));
+			glDrawElements(
+				primitive.mode, indexAccessor.count,
+				indexAccessor.componentType,
+				(char*)NULL + indexAccessor.byteOffset
+			);
+		}
+	}*/
 }

@@ -26,9 +26,14 @@ namespace XEngine::graphics
 
 		std::pair<unsigned int, std::map<int, unsigned int>> bindModel();
 
+		void prepareForDrawing();
+		void draw();
+
 	private:
 		void bindModelNodes(std::map<int, unsigned int>& mEbos, tinygltf::Node& node);
 		void bindMesh(std::map<int, unsigned int>& mEbos, tinygltf::Mesh& mesh);
+		void drawModelNodes(tinygltf::Node& node);
+		void drawMesh(const std::map<int, unsigned int>& mEbos, tinygltf::Mesh& mesh);
 	};
 	
 
