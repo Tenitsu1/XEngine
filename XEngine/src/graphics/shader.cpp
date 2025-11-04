@@ -40,14 +40,14 @@ namespace XEngine::graphics
 		}
 	}
 
-	Shader::Shader(const char* vertexPath, const char* fragmentPath, const char* computePath)
+	Shader::Shader(const char* vertexPath, const char* fragmentPath)
 	{
 
 		mProgramId = glCreateProgram();
 		
 
 		int status = GL_FALSE;
-		char errorLog[512]; 
+		char errorLog[512];
 
 
 		// Vertex Shader
@@ -89,26 +89,7 @@ namespace XEngine::graphics
 			glAttachShader(mProgramId, fragmentShaderId);
 		}
 
-		// Compute Shader
-		uint32_t computerShaderId = glCreateShader(GL_COMPUTE_SHADER);
-		{
-			readFile(computePath);
-			XENGINE_INFO("Shader code length: {}", shaderCode.length());
-			XENGINE_INFO("Shader code: {}", shaderCode);
-			const GLchar* glSource = shaderCode.c_str();
-			glShaderSource(computerShaderId, 1, &glSource, NULL);
-			glCompileShader(computerShaderId);
-			glGetShaderiv(computerShaderId, GL_COMPILE_STATUS, &status);
-			if (status != GL_TRUE)
-			{
-				glGetShaderInfoLog(computerShaderId, sizeof(errorLog), NULL, errorLog);
-				XENGINE_ERROR("Compute Shader compilation error: {}", errorLog);
-				glDeleteShader(computerShaderId);
-				glDeleteProgram(mProgramId);
-				return;
-			}
-			/*glAttachShader(mProgramId, computerShaderId);*/XENGINE_INFO("test");
-		}
+		
 
 		XENGINE_ASSERT(status == GL_TRUE, "Error compiling shader");
 		if (status == GL_TRUE)
@@ -127,8 +108,9 @@ namespace XEngine::graphics
 
 		glDeleteShader(vertexShaderId); 
 		glDeleteShader(fragmentShaderId); 
-		glDeleteShader(computerShaderId);
+		
 	}
+
 
 	Shader::~Shader()
 	{
@@ -209,5 +191,126 @@ namespace XEngine::graphics
 		}
 
 		return mUniformLocations[name];
+	}
+
+
+	void ComputeShader::readFile(const char* shaderPath)
+	{
+		std::ifstream shaderFile;
+		shaderFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+		try
+		{
+			shaderFile.open(shaderPath);
+			if (!shaderFile.is_open()) {
+				throw std::runtime_error("Could not open shader file.");
+			}
+
+			std::stringstream shaderStream;
+			shaderStream << shaderFile.rdbuf();
+
+			shaderCode = shaderStream.str();
+		}
+		catch (const std::ifstream::failure& e)
+		{
+			XENGINE_ERROR("File open error: {}", e.what());
+		}
+		catch (const std::runtime_error& e)
+		{
+			XENGINE_ERROR("File read error: {}", e.what());
+		}
+		catch (const std::exception& e)
+		{
+			XENGINE_ERROR("Read File Error: {}", e.what());
+		}
+	}
+
+
+	ComputeShader::ComputeShader(const char* computePath, int width, int height)
+		:mWidth(width), mHeight(height)
+	{
+		mProgramId = glCreateProgram();
+
+
+		int status = GL_FALSE;
+		char errorLog[512];
+
+
+		// Compute Shader
+		uint32_t computeShaderId = glCreateShader(GL_COMPUTE_SHADER);
+		{
+			readFile(computePath);
+			const GLchar* glSource = shaderCode.c_str();
+			glShaderSource(computeShaderId, 1, &glSource, NULL);
+			glCompileShader(computeShaderId);
+			glGetShaderiv(computeShaderId, GL_COMPILE_STATUS, &status);
+			if (status != GL_TRUE)
+			{
+				glGetShaderInfoLog(computeShaderId, sizeof(errorLog), NULL, errorLog);
+				XENGINE_ERROR("Compute Shader compilation error: {}", errorLog);
+				glDeleteShader(computeShaderId);
+				glDeleteProgram(mProgramId);
+				return;
+			}
+			glAttachShader(mProgramId, computeShaderId);
+		}
+
+		XENGINE_ASSERT(status == GL_TRUE, "Error compiling shader");
+		if (status == GL_TRUE)
+		{
+			glLinkProgram(mProgramId);
+			glValidateProgram(mProgramId);
+			glGetProgramiv(mProgramId, GL_LINK_STATUS, &status);
+			if (status != GL_TRUE)
+			{
+				glGetProgramInfoLog(mProgramId, sizeof(errorLog), NULL, errorLog);
+				XENGINE_ERROR("Shader link error: {}", errorLog);
+				glDeleteProgram(mProgramId);
+				mProgramId = -1;
+			}
+		}
+
+		glDeleteShader(computeShaderId);
+
+		glGenTextures(1, &mTexture);
+		glBindTexture(GL_TEXTURE_2D, mTexture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, mWidth, mHeight, 0, GL_RGBA, GL_FLOAT, nullptr);
+		glBindImageTexture(0, mTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+
+	}
+
+	void ComputeShader::bind()
+	{
+		glUseProgram(mProgramId);
+	}
+
+	void ComputeShader::unbind()
+	{
+		glUseProgram(0);
+	}
+
+	ComputeShader::~ComputeShader()
+	{
+		glUseProgram(0);
+		glDeleteProgram(mProgramId);
+	}
+
+	void ComputeShader::createSSBO(uint32_t& ssbo, uint32_t size, const void* data, uint32_t binding)
+	{
+		glGenBuffers(1, &ssbo);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, size, data, GL_STATIC_DRAW);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, ssbo);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	}
+
+	void ComputeShader::DispatchCompute()
+	{
+		glBindImageTexture(0, mTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+		glDispatchCompute((mWidth + 15) / 16, (mHeight + 15) / 16, 1);
+		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 	}
 }

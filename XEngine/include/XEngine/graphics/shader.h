@@ -12,13 +12,11 @@ namespace XEngine::graphics
 	class Shader
 	{
 	public:
-		Shader(const char* vertexPath, const char* fragmentPath, const char* computePath);
+		Shader(const char* vertexPath, const char* fragmentPath);
 		~Shader();
 
 		void bind();
 		void unbind();
-
-		
 
 		void setUniformInt(const std::string& name, int val);
 		void setUniformFloat1(const std::string& name, float val1);
@@ -40,8 +38,31 @@ namespace XEngine::graphics
 
 	private:
 		uint32_t mProgramId;
+		uint32_t mTexture;
 		std::unordered_map<std::string, int> mUniformLocations;
+		
 		std::string shaderCode;
+	};
+
+	class ComputeShader
+	{
+	public:
+		ComputeShader(const char* computePath, int width, int height);
+		~ComputeShader();
+
+		void createSSBO(uint32_t& ssbo, uint32_t size, const void* data, uint32_t binding);
+		void DispatchCompute();
+
+		void bind();
+		void unbind();
+
+	private:
+		void readFile(const char* shaderPath);
+		std::string shaderCode;
+		uint32_t mTexture;
+		uint32_t mProgramId;
+		uint32_t mWidth;
+		uint32_t mHeight;
 	};
 
 }

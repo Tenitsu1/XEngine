@@ -15,10 +15,12 @@ namespace XEngine::graphics::rendercommands
 	{
 		std::shared_ptr<VertexArray> vertexArray = mVertexArray.lock();
 		std::shared_ptr<Shader> shader = mShader.lock();
-		if (vertexArray && shader)
+		std::shared_ptr<ComputeShader> compute = mComputeShader.lock();
+		if (vertexArray && shader && compute)
 		{
 			vertexArray->bind();
 			shader->bind();
+			compute->bind();
 
 			if (vertexArray->getElementCount() > 0)
 			{
@@ -30,6 +32,7 @@ namespace XEngine::graphics::rendercommands
 			}
 			
 
+			compute->unbind();
 			shader->unbind();
 			vertexArray->unbind();
 		}

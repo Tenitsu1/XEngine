@@ -3,7 +3,6 @@
 
 #include "XEngine/log.h"
 
-#include "XEngine/graphics/mesh.h"
 #include "XEngine/graphics/shader.h"
 #include "XEngine/graphics/framebuffer.h"
 #include "XEngine/graphics/gltfLoader.h"
@@ -23,13 +22,13 @@ using namespace XEngine;
 
 class Editor : public XEngine::App
 {
+
 private:
 	std::shared_ptr<graphics::VertexArray> mVertexArray;
 	std::shared_ptr<graphics::Shader> mShader;
 	std::shared_ptr<graphics::Texture> mTexture;
-
-	graphics::GLTFStaticMesh* Model;
-
+	std::shared_ptr<graphics::ComputeShader> mComputeShader;
+	
 	float light = 1000.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
@@ -53,12 +52,13 @@ public:
 
 	void initialize() override
 	{
-
-		Model = new graphics::GLTFStaticMesh("models/Cube.gltf");
 		/*Model->prepareForDrawing();
 		Model->draw();*/
 
-		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag", "shaders\\default.comp");
+
+		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag");
+		mComputeShader = std::make_shared<graphics::ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
+
 		//shader->setUniformFloat3("color", 255, 0, 0);
 
 		graphics::VertexBuffer<float>* vb = new graphics::VertexBuffer<float>();
@@ -79,7 +79,6 @@ public:
 	}
 	void shutdown() override
 	{
-		delete Model;
 	}
 	void update() override
 	{
@@ -116,9 +115,10 @@ public:
 		mShader->setUniformFloat3("offset", xNorm + xkeyOffset, yNorm + ykeyOffset, yNorm + ykeyOffset);
 
 	}
+
 	void render() override
 	{
-		auto rc = std::make_unique<graphics::rendercommands::RenderVertexArray>(mVertexArray, mShader);
+		auto rc = std::make_unique<graphics::rendercommands::RenderVertexArray>(mVertexArray, mShader, mComputeShader);
 		Engine::Instance().getRenderManager().submit(std::move(rc));
 		Engine::Instance().getRenderManager().fulsh();
 	}

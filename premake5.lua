@@ -118,8 +118,7 @@ project "XEngineditor"
 	{
 		"%{prj.name}/src/**.h",
 		"%{prj.name}/src/**.cpp",
-		"%{prj.name}/shaders/**.vert",
-		"%{prj.name}/shaders/**.frag",
+		"%{prj.name}/shaders/**",
 		"%{prj.name}/models/**.bin",
 		"%{prj.name}/models/**.glb",
 		"%{prj.name}/models/**.gltf",

@@ -8,6 +8,7 @@ namespace XEngine::graphics
 	class Shader;
 	class Texture;
 	class Framebuffer;
+	class ComputeShader;
 
 	namespace rendercommands
 	{
@@ -21,15 +22,18 @@ namespace XEngine::graphics
 		class RenderVertexArray : public RenderCommand
 		{
 		public:
-			RenderVertexArray(std::weak_ptr<VertexArray> vertexArray, std::weak_ptr<Shader> shader)
-				:mVertexArray(vertexArray)
+			RenderVertexArray(std::weak_ptr<VertexArray> vertexArray
+							, std::weak_ptr<Shader> shader
+							, std::weak_ptr<ComputeShader> computeShader)
+				: mVertexArray(vertexArray)
 				, mShader(shader)
-			{}
+				, mComputeShader(computeShader){}
 			virtual void execute() override;
 
 		private: 
 			std::weak_ptr<VertexArray> mVertexArray;
 			std::weak_ptr<Shader> mShader;
+			std::weak_ptr<ComputeShader> mComputeShader;
 		};
 
 
