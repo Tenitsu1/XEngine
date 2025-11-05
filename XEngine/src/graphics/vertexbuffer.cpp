@@ -7,6 +7,16 @@
 
 namespace XEngine::graphics
 {
+
+	const uint32_t RawVertexBuffer::GLTypeByte   = GL_BYTE;
+	const uint32_t RawVertexBuffer::GLTypeUByte  = GL_UNSIGNED_BYTE;
+	const uint32_t RawVertexBuffer::GLTypeShort  = GL_SHORT;
+	const uint32_t RawVertexBuffer::GLTypeUShort = GL_UNSIGNED_SHORT;
+	const uint32_t RawVertexBuffer::GLTypeInt    = GL_INT;
+	const uint32_t RawVertexBuffer::GLTypeUint   = GL_UNSIGNED_INT;
+	const uint32_t RawVertexBuffer::GLTypeFloat  = GL_FLOAT;
+	const uint32_t RawVertexBuffer::GLTypeDouble = GL_DOUBLE;
+
 	RawVertexBuffer::RawVertexBuffer()
 	{
 		glGenBuffers(1, &mVbo);
@@ -51,25 +61,19 @@ namespace XEngine::graphics
 		, mAttributeCount(0)
 		, mVertexCount(0)
 		, mElementCount(0)
-		, mIsVaild(false)
+		, mIsValid(false)
 	{
 		glGenVertexArrays(1, &mVao);
 	}
 
 	VertexArray::~VertexArray()
 	{
-		uint32_t id;
-		for (auto& vbo : mVbos )
-		{
-			id = vbo->getVbo();
-			glDeleteBuffers(1, &id);
-			delete vbo;
-		}
+
 		glDeleteVertexArrays(1, &mVao);
 		mVbos.clear();
 	}
 
-	void VertexArray::pushBuffer(RawVertexBuffer* vbo)
+	void VertexArray::pushBuffer(std::unique_ptr<RawVertexBuffer> vbo)
 	{
 		if (mVbos.size() > 0)
 		{
@@ -78,7 +82,7 @@ namespace XEngine::graphics
 		XENGINE_ASSERT(vbo->getLayout().size() > 0, "VertexArray::PushBuffer - VertexBuffer has no layout defined.");
 		if (vbo->getLayout().size() > 0)
 		{
-			mVbos.push_back(vbo);
+			mVbos.push_back(std::move(vbo));
 			mVertexCount = (uint32_t)mVbos[0]->getVertexCount();
 		}
 		
@@ -110,7 +114,7 @@ namespace XEngine::graphics
 			{
 				glEnableVertexAttribArray(attribute);
 				glVertexAttribPointer(
-					attribute, count, GL_FLOAT, GL_FALSE,
+					attribute, count, static_cast<GLenum>(vbo->getGLType()), GL_FALSE,
 					vbo->getStride(), (void*)(intptr_t)offset);
 
 				attribute++;
@@ -119,7 +123,7 @@ namespace XEngine::graphics
 			vbo->unbind();
 		}
 		glBindVertexArray(0);
-		mIsVaild = true;
+		mIsValid = true;
 	}
 
 	void VertexArray::bind()

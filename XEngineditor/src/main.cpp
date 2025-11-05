@@ -3,12 +3,12 @@
 
 #include "XEngine/log.h"
 
+//#include "XEngine/graphics/vertexbuffer.h"
+#include "XEngine/graphics/ComputeShader.h"
 #include "XEngine/graphics/shader.h"
 #include "XEngine/graphics/framebuffer.h"
 #include "XEngine/graphics/gltfLoader.h"
 #include "XEngine/graphics/texture.h"
-#include "XEngine/graphics/vertexbuffer.h"
-
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
@@ -16,7 +16,7 @@
 #include "external/imgui/imgui.h"
 #include "external/glm/glm.hpp"
 #include "external/glm/gtc/matrix_transform.hpp"
-
+#include "external/tinygltf/tiny_gltf.h"
 
 using namespace XEngine;
 
@@ -24,11 +24,15 @@ class Editor : public XEngine::App
 {
 
 private:
-	std::shared_ptr<graphics::VertexArray> mVertexArray;
-	std::shared_ptr<graphics::Shader> mShader;
 	std::shared_ptr<graphics::Texture> mTexture;
 	std::shared_ptr<graphics::ComputeShader> mComputeShader;
-	
+	tinygltf::Model mtinyModel;
+	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
+	GLuint mTriangleSSBO = 0; // 新增 SSBO 的 ID
+	int mTriangleCount = 0;   // 三角形數量
+
+
+
 	float light = 1000.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
@@ -52,33 +56,36 @@ public:
 
 	void initialize() override
 	{
-		/*Model->prepareForDrawing();
-		Model->draw();*/
 
-
-		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\just_a_girl\\scene.gltf");
+		const auto& triangles = mModel->getTriangles();
+		mTriangleCount = (int)triangles.size();
 		mComputeShader = std::make_shared<graphics::ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
+		mComputeShader->createDebugSSBO(4);
+		if (mTriangleCount > 0)
+		{
+			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 3);
+		}
 
-		//shader->setUniformFloat3("color", 255, 0, 0);
+		// --- 新增：印出包圍盒日誌 ---
+		glm::vec3 boundsMin = mModel->getBoundsMin();
+		glm::vec3 boundsMax = mModel->getBoundsMax();
+		glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
+		glm::vec3 size = boundsMax - boundsMin;
 
-		graphics::VertexBuffer<float>* vb = new graphics::VertexBuffer<float>();
-		vb->pushVertex({ -1.0f, -1.0f, 0.f, 1.f, 1.f });
-		vb->pushVertex({ 1.0f, -1.0f, 0.f, 1.f, 0.f });
-		vb->pushVertex({ 1.0f,  1.0f, 0.f, 0.f, 0.f });
-		vb->pushVertex({ -1.0f,  1.0f, 0.f, 0.f, 1.f });
-		vb->setLayout({ 3, 2 });
+		XENGINE_TRACE("=========================================");
+		XENGINE_TRACE("Model Bounding Box Info:");
+		XENGINE_TRACE("  Min: ({:.2f}, {:.2f}, {:.2f})", boundsMin.x, boundsMin.y, boundsMin.z);
+		XENGINE_TRACE("  Max: ({:.2f}, {:.2f}, {:.2f})", boundsMax.x, boundsMax.y, boundsMax.z);
+		XENGINE_TRACE("  Center: ({:.2f}, {:.2f}, {:.2f})", center.x, center.y, center.z);
+		XENGINE_TRACE("  Size: ({:.2f}, {:.2f}, {:.2f})", size.x, size.y, size.z);
+		XENGINE_TRACE("=========================================");
 
-		mVertexArray = std::make_shared<graphics::VertexArray>();
-		mVertexArray->pushBuffer(vb);
-		mVertexArray->setElement({ 0, 3, 1, 1, 3, 2 });
-		mVertexArray->upload();
-		// Texture
-		/*mTexture = std::make_shared<graphics::Texture>("image\\image4.jpg");
-		mTexture->setTextureFilter(graphics::TextureFilter::Nearest);*/
 
 	}
 	void shutdown() override
 	{
+
 	}
 	void update() override
 	{
@@ -95,32 +102,42 @@ public:
 
 		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * 50; }
 		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * 50; }
-		mShader->setUniformFloat2("u_resolution", 800.0f, 600.0f);
-		mShader->setUniformInt("sphereCount", 4);
-		mShader->setUniformFloat4("spheres[0]", 0.0f, -100.5f, -1.0f, 100.0f); // 地面
-		mShader->setUniformFloat4("spheres[1]", 0.2f, 0.8f, 0.2f, 0.0f); // 地面顏色
-		mShader->setUniformFloat4("spheres[2]", 0.5f+xkeyOffset, 0.5f+ykeyOffset, -1.2f+ zkeyOffset, size); // 大球
-		mShader->setUniformFloat4("spheres[3]", light, light , light, 0.0f); // 大球顏色
-		mShader->setUniformFloat4("spheres[4]", -0.7f, -0.3f, -1.0f, 0.2f); // 左球
-		mShader->setUniformFloat4("spheres[5]", 0.0f, 1.0f, 0.0f, 0.0f); // 左球顏色
-		mShader->setUniformFloat4("spheres[6]", -0.3f, -0.3f, -1.0f, 0.2f); // 右球
-		mShader->setUniformFloat4("spheres[7]", 1.0f, 0.0f, 0.0f, 0.0f); // 右球顏色
-		mShader->setUniformFloat3("cameraPos", 0.0f, 0.0f, 0.0f);
-		mShader->setUniformFloat3("cameraTarget", 0.0f, 0.0f, -1.0f);
-		mShader->setUniformFloat1("cameraFov", 1.5f);
-		mShader->setUniformFloat1("samples_per_pixel", samples_per_pixel);
-		mShader->setUniformFloat3("backgroundColor", 0.6f, 0.8f, 1.0f);
-		mShader->setUniformInt("sphereCount", 4);
-		mShader->setUniformInt("max_depth", 10);
-		mShader->setUniformFloat3("offset", xNorm + xkeyOffset, yNorm + ykeyOffset, yNorm + ykeyOffset);
+
+		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
+		mComputeShader->setUniformInt("triangleCount", mTriangleCount);
 
 	}
 
 	void render() override
 	{
-		auto rc = std::make_unique<graphics::rendercommands::RenderVertexArray>(mVertexArray, mShader, mComputeShader);
+		auto rc = std::make_unique<graphics::rendercommands::RenderComputeShader>(mComputeShader);
+
 		Engine::Instance().getRenderManager().submit(std::move(rc));
+
 		Engine::Instance().getRenderManager().fulsh();
+
+
+		static bool hasPrinted = false;
+		if (!hasPrinted)
+		{
+			auto dbgDataOpt = mComputeShader->readDebugData();
+			if (dbgDataOpt.has_value())
+			{
+				const auto& dbgData = dbgDataOpt.value();
+				XENGINE_TRACE("--- GPU DEBUG DUMP ---");
+				XENGINE_TRACE("Ray Origin: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayOrigin.x, dbgData.dbg_rayOrigin.y, dbgData.dbg_rayOrigin.z);
+				XENGINE_TRACE("Ray Dir:    ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayDir.x, dbgData.dbg_rayDir.y, dbgData.dbg_rayDir.z);
+				XENGINE_TRACE("Triangle v0: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_v0.x, dbgData.dbg_v0.y, dbgData.dbg_v0.z);
+				XENGINE_TRACE("Determinant (a): {:.7f}", dbgData.dbg_det);
+				XENGINE_TRACE("u: {:.7f}", dbgData.dbg_u);
+				XENGINE_TRACE("v: {:.7f}", dbgData.dbg_v);
+				XENGINE_TRACE("t: {:.7f}", dbgData.dbg_t);
+				XENGINE_TRACE("----------------------");
+				hasPrinted = true;
+			}
+		}
+		mComputeShader->readDebugData();
+		
 	}
 
 	void imguiRender() override
@@ -154,7 +171,11 @@ public:
 			}
 			auto& window = Engine::Instance().getWindow();
 
-			ImGui::Image((void*)(intptr_t)window.getFramebuffer()->getTextureId(), {1280, 720 }, ImVec2(0, 1), ImVec2(1, 0));
+			ImGui::Image(
+					(void*)(intptr_t)mComputeShader->getTextureId(),
+					{1280, 720 },
+					ImVec2(0, 1),
+					ImVec2(1, 0));
 		}
 		ImGui::End();
 	}

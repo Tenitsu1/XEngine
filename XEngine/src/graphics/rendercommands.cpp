@@ -3,6 +3,7 @@
 
 #include "graphics/vertexbuffer.h"
 #include "graphics/shader.h"
+#include "graphics/ComputeShader.h"
 #include "graphics/texture.h"
 #include "graphics/framebuffer.h"
 #include "engine.h"
@@ -11,30 +12,35 @@
 
 namespace XEngine::graphics::rendercommands
 {
-	void RenderVertexArray::execute()
+	void RenderComputeShader::execute()
 	{
-		std::shared_ptr<VertexArray> vertexArray = mVertexArray.lock();
-		std::shared_ptr<Shader> shader = mShader.lock();
 		std::shared_ptr<ComputeShader> compute = mComputeShader.lock();
-		if (vertexArray && shader && compute)
+		/*std::shared_ptr<VertexArray> vertexArray = mVertexArray.lock();
+		std::shared_ptr<Shader> shader = mShader.lock();*/
+		if (/*vertexArray  && shader && */compute)
 		{
-			vertexArray->bind();
-			shader->bind();
-			compute->bind();
+			//XENGINE_ASSERT(vertexArray->isValue(), "Attempting to execute invalid RenderVertexArray - did you forget to call vertexArray::Upload()?");
+			//if (vertexArray->isValue())
+			//{
+			//	vertexArray->bind();
+			//	shader->bind();
+				compute->bind();
 
-			if (vertexArray->getElementCount() > 0)
-			{
-				glDrawElements(GL_TRIANGLES, vertexArray->getElementCount(), GL_UNSIGNED_INT, 0);
-			}
-			else
-			{
-				glDrawArrays(GL_TRIANGLE_STRIP,0, vertexArray->getVertexCount());
-			}
-			
+				//if (vertexArray->getElementCount() > 0)
+				//{
+				//	glDrawElements(GL_TRIANGLES, vertexArray->getElementCount(), GL_UNSIGNED_INT, 0);
+				//}
+				//else
+				//{
+				//	glDrawArrays(GL_TRIANGLE_STRIP, 0, vertexArray->getVertexCount());
+				//}
 
-			compute->unbind();
-			shader->unbind();
-			vertexArray->unbind();
+				compute->DispatchCompute();
+
+				compute->unbind();
+				/*shader->unbind();
+				vertexArray->unbind();*/
+				
 		}
 		else
 		{
@@ -49,23 +55,26 @@ namespace XEngine::graphics::rendercommands
 		std::shared_ptr<Shader> shader = mShader.lock();
 		if (vertexArray && shader)
 		{
-			vertexArray->bind();
-			texture->bind();
-			shader->bind();
-
-			if (vertexArray->getElementCount() > 0)
+			XENGINE_WARN("Attempting to execute invalid RenderVertexArrayTexture - did you forget to call vertexArray::Upload()?");
+			if (vertexArray->isValue())
 			{
-				glDrawElements(GL_TRIANGLES, vertexArray->getElementCount(), GL_UNSIGNED_INT, 0);
-			}
-			else
-			{
-				glDrawArrays(GL_TRIANGLE_STRIP, 0, vertexArray->getVertexCount());
-			}
+				vertexArray->bind();
+				texture->bind();
+				shader->bind();
 
+				if (vertexArray->getElementCount() > 0)
+				{
+					glDrawElements(GL_TRIANGLES, vertexArray->getElementCount(), GL_UNSIGNED_INT, 0);
+				}
+				else
+				{
+					glDrawArrays(GL_TRIANGLE_STRIP, 0, vertexArray->getVertexCount());
+				}
 
-			shader->unbind();
-			texture->unbind();
-			vertexArray->unbind();
+				shader->unbind();
+				texture->unbind();
+				vertexArray->unbind();
+			}
 		}
 		else
 		{
