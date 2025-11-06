@@ -2,6 +2,7 @@
 #include "log.h"
 #include "graphics/helper.h"
 #include "glad/glad.h"
+#include "graphics/structs.h"
 
 
 #include "external/glm/gtc/type_ptr.hpp"
@@ -195,6 +196,14 @@ namespace XEngine::graphics
 	{
 		glUseProgram(mProgramId);
 		glUniformMatrix4fv(getUniformLoctaion(name), 1, GL_FALSE, glm::value_ptr(mat));
+	}
+
+	void ComputeShader::setUniformCamera(const std::string& name, const Camera& camera)
+	{
+		setUniformFloat3(name + ".position", camera.position);
+		setUniformFloat3(name + ".lookat", camera.lookat);
+		setUniformFloat3(name + ".up", camera.up);
+		setUniformFloat1(name + ".fov", camera.fov);
 	}
 
 	void ComputeShader::createDebugSSBO(uint32_t binding)

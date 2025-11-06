@@ -457,6 +457,7 @@ namespace XEngine::graphics
 					tri.NA = n0_local;
 					tri.NB = n1_local;
 					tri.NC = n2_local;
+					tri.faceNormal = glm::normalize(glm::cross(v1_world - v0_world, v2_world - v0_world));
 					// padding 成员不需要手动赋值，它們的存在只是为了占位
 
 					mTriangles.push_back(tri);
@@ -464,7 +465,7 @@ namespace XEngine::graphics
 			}
 		}
 
-		XENGINE_TRACE("=========================================");
+	/*	XENGINE_TRACE("=========================================");
 		XENGINE_TRACE("CPU-Side Triangle Data Verification:");
 		XENGINE_TRACE("Total triangles extracted: {}", mTriangles.size());
 		if (mTriangles.size() > 0) {
@@ -480,7 +481,7 @@ namespace XEngine::graphics
 				XENGINE_INFO("v3: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].NC.x, mTriangles[i].NC.y, mTriangles[i].NC.z);
 			}
 		}		
-		XENGINE_TRACE("=========================================");
+		XENGINE_TRACE("=========================================");*/
 
 		// 遞迴處理子節點
 		for (size_t i = 0; i < node.children.size(); ++i) {

@@ -9,9 +9,12 @@
 #include "XEngine/graphics/framebuffer.h"
 #include "XEngine/graphics/gltfLoader.h"
 #include "XEngine/graphics/texture.h"
+#include "XEngine/graphics/structs.h"
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
+
+#include "XEngine/accelerators/qbvh.h"
 
 #include "external/imgui/imgui.h"
 #include "external/glm/glm.hpp"
@@ -29,6 +32,7 @@ private:
 	tinygltf::Model mtinyModel;
 	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
 	GLuint mTriangleSSBO = 0; // 新增 SSBO 的 ID
+	GLuint mQBVHSSBO = 0;     // QBVH SSBO ID
 	int mTriangleCount = 0;   // 三角形數量
 
 
@@ -39,7 +43,8 @@ private:
 	float zkeyOffset = 0.f;
 	float keySpeed = 0.005f;
 	float size = 0.5f;
-	float samples_per_pixel = 50;
+	int samples_per_pixel = 50;
+	graphics::Camera camera;
 
 public:
 
@@ -57,14 +62,16 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\just_a_girl\\scene.gltf");
-		const auto& triangles = mModel->getTriangles();
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
+		auto& triangles = mModel->getTriangles();
 		mTriangleCount = (int)triangles.size();
 		mComputeShader = std::make_shared<graphics::ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
 		mComputeShader->createDebugSSBO(4);
+		auto qbvhNodes = QBVH::buildQBVH(triangles);
 		if (mTriangleCount > 0)
 		{
-			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 3);
+			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)qbvhNodes.size() * sizeof(QBVH::QBVHNode), qbvhNodes.data(), 1);
+			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(graphics::Triangle), triangles.data(), 2);
 		}
 
 		// --- 新增：印出包圍盒日誌 ---
@@ -103,9 +110,17 @@ public:
 		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * 50; }
 		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * 50; }
 
+		camera.position = glm::vec3(xkeyOffset, ykeyOffset, zkeyOffset);
+		camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
+		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
+		camera.fov = 45.0f;
+
 		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
 		mComputeShader->setUniformInt("triangleCount", mTriangleCount);
-
+		mComputeShader->setUniformCamera("camera", camera);
+		mComputeShader->setUniformInt("samples_per_pixel", samples_per_pixel);
+		mComputeShader->setUniformInt("max_depth", 5);
+		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
 	}
 
 	void render() override
@@ -159,7 +174,7 @@ public:
 		{
 			ImGui::DragFloat("light", &light, 1);
 			ImGui::DragFloat("size", &size, 0.01f);
-			ImGui::DragFloat("samples_per_pixel", &samples_per_pixel, 0.1f);
+			ImGui::DragInt("samples_per_pixel", &samples_per_pixel, 0.1f);
 		}
 		ImGui::End();
 

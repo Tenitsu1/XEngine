@@ -33,6 +33,7 @@ namespace XEngine::graphics
 		void setUniformMat3(const std::string& name, const glm::mat3& mat);
 		void setUniformMat4(const std::string& name, const glm::mat4& mat);
 
+
 		inline uint32_t getProgramId() const { return mProgramId; }
 
 	private:

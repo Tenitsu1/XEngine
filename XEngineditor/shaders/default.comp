@@ -1,37 +1,136 @@
 ﻿#version 460 core
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(rgba32f, binding = 0) uniform writeonly image2D destTex;
+
+// SSBO 相關定義 (保持不變)
+struct QBVHNode {
+    vec4 aabbMin;
+    vec4 aabbMax;
+    ivec4 childrenA; // 最多4個子節點索引，-1表示無
+    ivec4 childrenB; // 最多4個子節點索引，-1表示無
+    ivec4 info;     // z=start, w=count
+};
+
+struct Triangle {
+    vec4 p0;
+    vec4 p1;
+    vec4 p2;
+    vec4 n0;
+    vec4 n1;
+    vec4 n2;
+    vec4 normal;
+};
+
+struct Camera {
+    vec3 position;
+    vec3 lookat;
+    vec3 up;
+    float fov;
+};
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+struct HitRecord {
+    vec3 pos;
+    vec3 normal;
+    vec3 color;
+    float t;
+    bool is_light;
+};
+
+layout(std430, binding = 1) buffer QBVHNodeBuffer {
+    QBVHNode qbvhNodes[];
+};
+
+layout(std430, binding = 2) buffer TriangleBuffer {
+    Triangle triangles[];
+};
 
 uniform int triangleCount;
 uniform vec2 u_resolution; 
+uniform Camera camera;
+uniform int samples_per_pixel;
+uniform int max_depth;
+uniform vec3 backgroundColor;
 
-// SSBO 相關定義 (保持不變)
-struct Triangle { vec4 v0, v1, v2; };
-layout(std430, binding = 3) buffer TriangleBuffer { Triangle triangles[]; };
+const float EPSILON = 1e-4;
+const vec3 WHITE = vec3(1.0, 1.0, 1.0);
 
+// 定義隨機數生成函數
+uint hash( uint x ) {
+    x += ( x << 10u );
+    x ^= ( x >>  6u );
+    x += ( x <<  3u );
+    x ^= ( x >> 11u );
+    x += ( x << 15u );
+    return x;
+}
 
+uint hash( uvec2 v ) { return hash( v.x ^ hash(v.y)                         ); }
+uint hash( uvec3 v ) { return hash( v.x ^ hash(v.y) ^ hash(v.z)             ); }
+uint hash( uvec4 v ) { return hash( v.x ^ hash(v.y) ^ hash(v.z) ^ hash(v.w) ); }
 
+float floatConstruct( uint m ) {
+    const uint ieeeMantissa = 0x007FFFFFu;
+    const uint ieeeOne      = 0x3F800000u;
+
+    m &= ieeeMantissa;
+    m |= ieeeOne;
+
+    float  f = uintBitsToFloat( m );
+    return f - 1.0;
+}
+
+float random( float x ) { return floatConstruct(hash(floatBitsToUint(x))); }
+float random( vec2  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
+float random( vec3  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
+float random( vec4  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
+
+vec2 random_vec2(vec2 p) {
+    return vec2(random(p), random(p + vec2(1.0, 0.0)));
+}
+
+vec3 random_color(vec2 co) {
+    return vec3(random(co + vec2(1.0, 0.0)),
+                random(co + vec2(0.0, 1.0)),
+                random(co + vec2(1.0, 1.0)));
+}
+
+vec3 random_unit_vector(vec2 co) {
+    float z = random(co) * 2.0 - 1.0; // z in [-1, 1]
+    float t = random(co + vec2(1.0, 1.0)) * 6.28318530718; // t in [0, 2π]
+    float r = sqrt(1.0 - z * z); // radius at z
+    return vec3(r * cos(t), r * sin(t), z);
+}
+
+vec3 random_in_hemisphere(vec3 normal, vec2 seed) {
+    vec3 in_unit = random_unit_vector(seed);
+    return dot(in_unit, normal) > 0.0 ? in_unit : -in_unit;
+}
 
 // --- 新增 rayTriangleIntersect 函式 (你的版本) ---
-float rayTriangleIntersect(vec3 rayOrigin, vec3 rayDir, vec3 v0, vec3 v1, vec3 v2) {
-    vec3 edge1 = v1 - v0;
-    vec3 edge2 = v2 - v0;
-    vec3 pvec = cross(rayDir, edge2);
+float rayTriangleIntersect(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
+    vec3 edge1 = p1 - p0;
+    vec3 edge2 = p2 - p0;
+    vec3 pvec = cross(ray.direction, edge2);
     float det = dot(edge1, pvec);
 
-    if (abs(det) < 0.00001) {
+    if (abs(det) < EPSILON) {
         return -1.0;
     }
 
     float invDet = 1.0 / det;
-    vec3 tvec = rayOrigin - v0;
+    vec3 tvec = ray.origin - p0;
     float u = dot(tvec, pvec) * invDet;
     if (u < 0.0 || u > 1.0) {
         return -1.0;
     }
 
     vec3 qvec = cross(tvec, edge1);
-    float v = dot(rayDir, qvec) * invDet;
+    float v = dot(ray.direction, qvec) * invDet;
     if (v < 0.0 || u + v > 1.0) {
         return -1.0;
     }
@@ -39,32 +138,157 @@ float rayTriangleIntersect(vec3 rayOrigin, vec3 rayDir, vec3 v0, vec3 v1, vec3 v
     float t = dot(edge2, qvec) * invDet;
     return t;
 }
+
+bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
+    vec3 invD = 1.0 / ray.direction;
+    vec3 t0s = (minB - ray.origin) * invD;
+    vec3 t1s = (maxB - ray.origin) * invD;
+    vec3 tsmaller = min(t0s, t1s);
+    vec3 tbigger = max(t0s, t1s);
+    float tmin = max(max(tsmaller.x, tsmaller.y), tsmaller.z);
+    float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
+    return tmax >= max(tmin, 0.0) && tmin < tMax;
+}
+
+bool hit_qbvh(Ray ray, inout HitRecord rec) {
+    int hitIdx = -1;
+    vec3 tempColor = vec3(0.0);
+    vec3 tempNormal = vec3(0.0);
+
+    int stack[32];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0; // root node
+
+    while (stackPtr > 0) {
+        int nodeIdx = stack[--stackPtr];
+        QBVHNode node = qbvhNodes[nodeIdx];
+        if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, rec.t)) continue;
+
+        ivec4 childrenA = node.childrenA;
+        ivec4 childrenB = node.childrenB;
+        int start = node.info.z;
+        int count = node.info.w;
+        bool isLeaf = (childrenA.x < 0 && childrenA.y < 0 && childrenA.z < 0 &&
+                       childrenB.x < 0 && childrenB.y < 0 && childrenB.z < 0);
+        if (isLeaf) {
+            for (int i = start; i < start + count; i++) {
+                Triangle triangle = triangles[i];
+                vec3 p0 = triangle.p0.xyz;
+                vec3 p1 = triangle.p1.xyz;
+                vec3 p2 = triangle.p2.xyz;
+                vec3 normal = triangle.normal.xyz;
+                float t = -1.0;
+                if (dot(ray.direction, normal) < -EPSILON) {
+                    t = rayTriangleIntersect(ray, p0, p1, p2);
+                }
+                if (t > 0.0 && t < rec.t) {
+                    rec.t = t;
+                    hitIdx = i + 1000;
+                    tempNormal = normal;
+                    tempColor = vec3(0.8, 0.3, 0.3);
+                }
+            }
+        } else {
+            for (int i = 0; i < 4; i++) {
+                int childA = childrenA[i];
+                int childB = childrenB[i];
+                if (childA >= 0) stack[stackPtr++] = childA;
+                if (childB >= 0) stack[stackPtr++] = childB;
+            }
+        }
+    }
+
+    if (hitIdx >= 0) {
+        rec.pos = ray.origin + rec.t * ray.direction;
+        rec.normal = tempNormal;
+        rec.color = tempColor * 0.5;
+        return true;
+    }
+    return false;
+}
+
+bool hit_world(Ray ray, out HitRecord rec) {
+    rec.t = 1e9;
+    bool hitSomething = false;
+    vec3 tempColor = vec3(0.0);
+    vec3 tempNormal = vec3(0.0);
+    vec3 tempCenter = vec3(0.0);
+    bool is_light = false;
+
+    HitRecord triRec;
+    triRec.t = rec.t;
+    if (hit_qbvh(ray, triRec)) {
+        if (triRec.t < rec.t) {
+            rec.t = triRec.t;
+            hitSomething = true;
+            tempNormal = triRec.normal;
+            tempColor = triRec.color;
+            is_light = false;
+        }
+    }
+
+    if (!hitSomething) {
+        return false;
+    }
+
+    rec.pos = ray.origin + rec.t * ray.direction;
+    rec.normal = tempNormal;
+    rec.color = tempColor;
+    rec.is_light = is_light;
+    return true;
+}
 // ----------------------------------------------------
 
 void main()
 {
-    ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel_coords.x >= int(u_resolution.x) || pixel_coords.y >= int(u_resolution.y)) {
-        return;
+    vec2 pixel = gl_GlobalInvocationID.xy;
+    if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
+
+    vec3 color = vec3(0.0);
+    vec3 forward = normalize(camera.lookat - camera.position);
+    vec3 up = normalize(camera.up);
+    vec3 right = normalize(cross(forward, up));
+    up = cross(right, forward);
+
+    float aspect = u_resolution.x / u_resolution.y;
+    float scale = tan(radians(camera.fov) * 0.5);
+    vec2 assvec2 = vec2(aspect * scale, scale);
+
+    vec2 invRes = 1.0 / u_resolution;
+    vec3 camRight = right * assvec2.x;
+    vec3 camUp    = up    * assvec2.y;
+
+    for (int s = 0; s < samples_per_pixel; s++) {
+        Ray ray;
+        ray.origin = camera.position;
+        vec2 ndc = (pixel + random_vec2(pixel + float(s))) * invRes * 2.0 - 1.0;
+        ray.direction = normalize(forward + ndc.x * camRight + ndc.y * camUp);
+
+        vec3 attenuation = WHITE;
+        for (int depth = 0; depth < max_depth; depth++) {
+            HitRecord rec;
+            rec.is_light = false;
+            bool hit = hit_world(ray, rec);
+
+            if (hit) {
+                if (rec.is_light) {
+                    // float lightAttenuation = calculateAttenuation(rec.t);
+                    // color += attenuation * rec.color * lightAttenuation;
+                    break;
+                } else {
+                    ray.origin = rec.pos + rec.normal * EPSILON;
+                    ray.direction = random_in_hemisphere(rec.normal, rec.pos.xy + float(depth) + float(s));
+                    attenuation *= rec.color;
+                }
+            } else {
+                float a = 0.5 * (ray.direction.y + 1.0);
+                vec3 sky = mix(WHITE, backgroundColor, a);
+                color += attenuation * sky;
+                break;
+            }
+        }
     }
-
-    vec3 finalColor;
-
-    // 使用固定的光線和三角形來測試 rayTriangleIntersect
-    vec3 test_v0 = vec3(-1.0, -1.0, 0.0);
-    vec3 test_v1 = vec3( 1.0, -1.0, 0.0);
-    vec3 test_v2 = vec3( 0.0,  1.0, 0.0);
-    
-    vec3 test_rayOrigin = vec3(0.0, 0.0, 5.0); // 從 Z=5 射出
-    vec3 test_rayDir = vec3(0.0, 0.0, -1.0);   // 朝著 -Z 方向
-
-    float t = rayTriangleIntersect(test_rayOrigin, test_rayDir, test_v0, test_v1, test_v2);
-
-    if (t > 0.0) {
-        finalColor = vec3(0.0, 0.0, 1.0); // 藍色 (如果擊中)
-    } else {
-        finalColor = vec3(1.0, 0.0, 0.0); // 紅色 (如果未擊中)
-    }
-
-    imageStore(destTex, pixel_coords, vec4(finalColor, 1.0));
+    color /= float(samples_per_pixel);
+    // vec3 color = vec3(1.0);
+    imageStore(destTex, ivec2(pixel), vec4(color, 1.0));
 }

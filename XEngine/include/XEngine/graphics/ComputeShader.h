@@ -5,11 +5,11 @@
 #include <optional>
 
 #include "external/glm/glm.hpp"
-
 #include <unordered_map>
 
 namespace XEngine::graphics
 {
+	struct Camera;
 
 	struct DebugData {
 		// We will store values from the first triangle test
@@ -50,6 +50,9 @@ namespace XEngine::graphics
 
 			void setUniformMat3(const std::string& name, const glm::mat3& mat);
 			void setUniformMat4(const std::string& name, const glm::mat4& mat);
+
+			void setUniformCamera(const std::string& baseName, const Camera& cam);
+
 
 			inline uint32_t getTextureId() const { return mTexture; }
 
