@@ -3,7 +3,7 @@
 
 #include "XEngine/log.h"
 
-//#include "XEngine/graphics/vertexbuffer.h"
+#include "XEngine/graphics/vertexbuffer.h"
 #include "XEngine/graphics/ComputeShader.h"
 #include "XEngine/graphics/shader.h"
 #include "XEngine/graphics/framebuffer.h"
@@ -27,8 +27,10 @@ class Editor : public XEngine::App
 {
 
 private:
+	std::shared_ptr<graphics::VertexArray> mVertexArray;
 	std::shared_ptr<graphics::Texture> mTexture;
 	std::shared_ptr<graphics::ComputeShader> mComputeShader;
+	std::shared_ptr<graphics::Shader> mShader;
 	tinygltf::Model mtinyModel;
 	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
 	GLuint mTriangleSSBO = 0; // 新增 SSBO 的 ID
@@ -43,7 +45,7 @@ private:
 	float zkeyOffset = 0.f;
 	float keySpeed = 0.005f;
 	float size = 0.5f;
-	int samples_per_pixel = 50;
+	int samples_per_pixel = 1;
 	graphics::Camera camera;
 
 public:
@@ -65,6 +67,7 @@ public:
 		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
 		auto& triangles = mModel->getTriangles();
 		mTriangleCount = (int)triangles.size();
+		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mComputeShader = std::make_shared<graphics::ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
 		mComputeShader->createDebugSSBO(4);
 		auto qbvhNodes = QBVH::buildQBVH(triangles);
@@ -73,6 +76,10 @@ public:
 			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)qbvhNodes.size() * sizeof(QBVH::QBVHNode), qbvhNodes.data(), 1);
 			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(graphics::Triangle), triangles.data(), 2);
 		}
+
+		// --- VertexArray ---
+		mVertexArray = std::make_shared<graphics::VertexArray>();
+		mVertexArray->upload();
 
 		// --- 新增：印出包圍盒日誌 ---
 		glm::vec3 boundsMin = mModel->getBoundsMin();
@@ -125,7 +132,7 @@ public:
 
 	void render() override
 	{
-		auto rc = std::make_unique<graphics::rendercommands::RenderComputeShader>(mComputeShader);
+		auto rc = std::make_unique<graphics::rendercommands::RenderShader>(mVertexArray,mShader,mComputeShader);
 
 		Engine::Instance().getRenderManager().submit(std::move(rc));
 
@@ -170,11 +177,20 @@ public:
 			ImGui::DragFloat("PositionZ", &zkeyOffset, 0.01f);
 		}
 		ImGui::End();
+
 		if (ImGui::Begin("Test2"))
 		{
 			ImGui::DragFloat("light", &light, 1);
 			ImGui::DragFloat("size", &size, 0.01f);
 			ImGui::DragInt("samples_per_pixel", &samples_per_pixel, 0.1f);
+		}
+		ImGui::End();
+
+		if (ImGui::Begin("Metrics/Debugger"))
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+			ImGui::Text("%d vertices,\n%d indices (%d triangles)", io.MetricsRenderVertices, io.MetricsRenderIndices, io.MetricsRenderIndices / 3);
 		}
 		ImGui::End();
 
