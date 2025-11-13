@@ -457,7 +457,7 @@ namespace XEngine::graphics
 					tri.NA = n0_local;
 					tri.NB = n1_local;
 					tri.NC = n2_local;
-					tri.faceNormal = glm::normalize(glm::cross(v1_world - v0_world, v2_world - v0_world));
+					tri.faceNormal = glm::normalize(glm::cross(v1_local - v0_local, v2_local - v0_local));
 					// padding 成员不需要手动赋值，它們的存在只是为了占位
 
 					mTriangles.push_back(tri);

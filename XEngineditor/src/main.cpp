@@ -43,7 +43,7 @@ private:
 	float zkeyOffset = 0.f;
 	float keySpeed = 0.005f;
 	float size = 0.5f;
-	int samples_per_pixel = 50;
+	int samples_per_pixel = 1;
 	graphics::Camera camera;
 
 public:
@@ -62,7 +62,7 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\chair.gltf");
 		auto& triangles = mModel->getTriangles();
 		mTriangleCount = (int)triangles.size();
 		mComputeShader = std::make_shared<graphics::ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
@@ -111,14 +111,20 @@ public:
 		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * 50; }
 
 		camera.position = glm::vec3(xkeyOffset, ykeyOffset, zkeyOffset);
-		camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
+		camera.lookat = camera.position + glm::vec3(0.0f, 0.0f, -1.0f);
 		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
 		camera.fov = 45.0f;
+		
+		float aspect = (float)windowSize.x / (float)windowSize.y;
+		float fov = glm::radians(camera.fov);
+		glm::mat4 view = glm::lookAt(camera.position, camera.lookat, camera.up);
+		// 近裁剪面（zNear = 0.1f）和遠裁剪面（zFar = 100.0f）
+		glm::mat4 projection = glm::perspective(fov, aspect, 0.1f, 100.0f);
+		glm::mat4 invViewProj = glm::inverse(projection * view);
 
 		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
-		mComputeShader->setUniformInt("triangleCount", mTriangleCount);
 		mComputeShader->setUniformCamera("camera", camera);
-		mComputeShader->setUniformInt("samples_per_pixel", samples_per_pixel);
+		mComputeShader->setUniformMat4("invViewProj", invViewProj);
 		mComputeShader->setUniformInt("max_depth", 5);
 		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
 	}
@@ -132,26 +138,26 @@ public:
 		Engine::Instance().getRenderManager().fulsh();
 
 
-		static bool hasPrinted = false;
-		if (!hasPrinted)
-		{
-			auto dbgDataOpt = mComputeShader->readDebugData();
-			if (dbgDataOpt.has_value())
-			{
-				const auto& dbgData = dbgDataOpt.value();
-				XENGINE_TRACE("--- GPU DEBUG DUMP ---");
-				XENGINE_TRACE("Ray Origin: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayOrigin.x, dbgData.dbg_rayOrigin.y, dbgData.dbg_rayOrigin.z);
-				XENGINE_TRACE("Ray Dir:    ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayDir.x, dbgData.dbg_rayDir.y, dbgData.dbg_rayDir.z);
-				XENGINE_TRACE("Triangle v0: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_v0.x, dbgData.dbg_v0.y, dbgData.dbg_v0.z);
-				XENGINE_TRACE("Determinant (a): {:.7f}", dbgData.dbg_det);
-				XENGINE_TRACE("u: {:.7f}", dbgData.dbg_u);
-				XENGINE_TRACE("v: {:.7f}", dbgData.dbg_v);
-				XENGINE_TRACE("t: {:.7f}", dbgData.dbg_t);
-				XENGINE_TRACE("----------------------");
-				hasPrinted = true;
-			}
-		}
-		mComputeShader->readDebugData();
+		//static bool hasPrinted = false;
+		//if (!hasPrinted)
+		//{
+		//	auto dbgDataOpt = mComputeShader->readDebugData();
+		//	if (dbgDataOpt.has_value())
+		//	{
+		//		const auto& dbgData = dbgDataOpt.value();
+		//		XENGINE_TRACE("--- GPU DEBUG DUMP ---");
+		//		XENGINE_TRACE("Ray Origin: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayOrigin.x, dbgData.dbg_rayOrigin.y, dbgData.dbg_rayOrigin.z);
+		//		XENGINE_TRACE("Ray Dir:    ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayDir.x, dbgData.dbg_rayDir.y, dbgData.dbg_rayDir.z);
+		//		XENGINE_TRACE("Triangle v0: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_v0.x, dbgData.dbg_v0.y, dbgData.dbg_v0.z);
+		//		XENGINE_TRACE("Determinant (a): {:.7f}", dbgData.dbg_det);
+		//		XENGINE_TRACE("u: {:.7f}", dbgData.dbg_u);
+		//		XENGINE_TRACE("v: {:.7f}", dbgData.dbg_v);
+		//		XENGINE_TRACE("t: {:.7f}", dbgData.dbg_t);
+		//		XENGINE_TRACE("----------------------");
+		//		hasPrinted = true;
+		//	}
+		//}
+		//mComputeShader->readDebugData();
 		
 	}
 
