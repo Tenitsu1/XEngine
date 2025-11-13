@@ -42,7 +42,7 @@ private:
 	float light = 1000.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
-	float zkeyOffset = 0.f;
+	float zkeyOffset = 5.f;
 	float keySpeed = 0.005f;
 	float size = 0.5f;
 	int samples_per_pixel = 1;
@@ -64,7 +64,7 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\chair.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
 		auto& triangles = mModel->getTriangles();
 		mTriangleCount = (int)triangles.size();
 		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag");
