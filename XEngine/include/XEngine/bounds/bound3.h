@@ -5,16 +5,16 @@
 #include <cfloat>
 
 namespace XEngine::Bounds {
-    class Bounds3 {
+    class Bound3 {
     public:
         glm::vec3 min, max;
 
-        Bounds3();
-        Bounds3(const glm::vec3& p1, const glm::vec3& p2);
-        Bounds3(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3);
+        Bound3();
+        Bound3(const glm::vec3& p1, const glm::vec3& p2);
+        Bound3(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3);
 
-        Bounds3 Union(const glm::vec3& other);
-        Bounds3 Union(const Bounds3& other);
+        Bound3 Union(const glm::vec3& other);
+        Bound3 Union(const Bound3& other);
         glm::vec3 Diagonal() const;
         glm::vec3 Center() const;
         int octant(const glm::vec3& point) const;
@@ -32,6 +32,6 @@ namespace XEngine::Bounds {
         void updateCache() const;
     };
 
-    Bounds3 Union(const Bounds3& b, const glm::vec3& p);
-    Bounds3 Union(const Bounds3& b1, const Bounds3& b2);
+    Bound3 Union(const Bound3& b, const glm::vec3& p);
+    Bound3 Union(const Bound3& b1, const Bound3& b2);
 }

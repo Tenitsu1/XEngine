@@ -1,27 +1,27 @@
-#include "accelerators/qbvh.h"
-#include "bounds/bounds.h"
+#include "accelerators/obvh.h"
+#include "bounds/bound3.h"
 #include <functional>
 #include <algorithm>
 #include "graphics/structs.h"
 
 
 
-namespace XEngine::QBVH {
-    std::vector<QBVHNode> buildQBVH(std::vector<graphics::Triangle>& triangles) {
-        std::vector<QBVHNode> nodes;
+namespace XEngine::OBVH {
+    std::vector<OBVHNode> buildOBVH(std::vector<graphics::Triangle>& triangles) {
+        std::vector<OBVHNode> nodes;
 
         std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
             int count = end - start;
-            QBVHNode node;
+            OBVHNode node;
             node.childrenA = glm::ivec4(-1);
             node.childrenB = glm::ivec4(-1);
             node.info = glm::ivec4(-1, -1, start, count);
-            Bounds::Bounds3 aabb;
+            Bounds::Bound3 aabb;
 
             // 計算 AABB
             for (int i = start; i < end; i++) {
                 graphics::Triangle triangle = triangles[i];
-                Bounds::Bounds3 TriangleAABB(
+                Bounds::Bound3 TriangleAABB(
 					triangle.v1,
 					triangle.v2,
 					triangle.v3
