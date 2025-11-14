@@ -3,10 +3,10 @@
 
 #include "XEngine/log.h"
 
-#include "XEngine/graphics/ComputeShader.h"
-#include "XEngine/graphics/shader.h"
+#include "XEngine/shaders/computeShader.h"
+#include "XEngine/shaders/shader.h"
 #include "XEngine/graphics/gltfLoader.h"
-#include "XEngine/graphics/structs.h"
+#include "XEngine/graphics/structs.hpp"
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
@@ -24,8 +24,8 @@ class Editor : public XEngine::App
 {
 
 private:
-	std::shared_ptr<graphics::ComputeShader> mComputeShader;
-	std::shared_ptr<graphics::Shader> mShader;
+	std::shared_ptr<ComputeShader> mComputeShader;
+	std::shared_ptr<Shader> mShader;
 	tinygltf::Model mtinyModel;
 	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
 	GLuint mTriangleSSBO = 0; // 新增 SSBO 的 ID
@@ -41,7 +41,7 @@ private:
 	float keySpeed = 0.005f;
 	float size = 0.5f;
 	int samples_per_pixel = 1;
-	graphics::Camera camera;
+	Camera camera;
 
 public:
 
@@ -62,14 +62,14 @@ public:
 		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
 		auto& triangles = mModel->getTriangles();
 		mTriangleCount = (int)triangles.size();
-		mShader = std::make_shared<graphics::Shader>("shaders\\default.vert", "shaders\\default.frag");
-		mComputeShader = std::make_shared<graphics::ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
+		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
+		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
 		mComputeShader->createDebugSSBO(4);
 		auto qbvhNodes = QBVH::buildQBVH(triangles);
 		if (mTriangleCount > 0)
 		{
 			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)qbvhNodes.size() * sizeof(QBVH::QBVHNode), qbvhNodes.data(), 1);
-			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(graphics::Triangle), triangles.data(), 2);
+			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 2);
 		}
 
 

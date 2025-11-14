@@ -7,9 +7,10 @@
 #include "external/glm/glm.hpp"
 #include <unordered_map>
 
-namespace XEngine::graphics
+struct Camera;
+
+namespace XEngine
 {
-	struct Camera;
 
 	struct DebugData {
 		// We will store values from the first triangle test

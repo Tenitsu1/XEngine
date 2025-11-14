@@ -1,13 +1,13 @@
-﻿#include "graphics/ComputeShader.h"
+﻿#include "shaders/ComputeShader.h"
 #include "log.h"
 #include "glad/glad.h"
-#include "graphics/structs.h"
+#include "graphics/structs.hpp"
 
 
 #include "external/glm/gtc/type_ptr.hpp"
 
 
-namespace XEngine::graphics
+namespace XEngine
 {
 	void ComputeShader::readFile(const char* shaderPath)
 	{

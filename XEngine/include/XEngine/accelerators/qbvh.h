@@ -3,9 +3,9 @@
 #include <external/glm/glm.hpp>
 #include <vector>
 
-namespace XEngine::graphics {
-    struct Triangle;
-}
+
+struct Triangle;
+
 
 namespace XEngine::QBVH {
     
@@ -24,6 +24,6 @@ namespace XEngine::QBVH {
         glm::ivec4 info;      // z=start, w=count
     };
 
-    std::vector<QBVHNode> buildQBVH(std::vector<graphics::Triangle>& triangles);
+    std::vector<QBVHNode> buildQBVH(std::vector<Triangle>& triangles);
 }
 #endif

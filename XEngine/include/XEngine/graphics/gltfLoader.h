@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "structs.h"
+#include "structs.hpp"
 #include "external/glm/glm.hpp"
 
 //#include "stb_image.h"

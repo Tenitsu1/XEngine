@@ -2,12 +2,12 @@
 #include "bounds/bounds.h"
 #include <functional>
 #include <algorithm>
-#include "graphics/structs.h"
+#include "graphics/structs.hpp"
 
 
 
 namespace XEngine::QBVH {
-    std::vector<QBVHNode> buildQBVH(std::vector<graphics::Triangle>& triangles) {
+    std::vector<QBVHNode> buildQBVH(std::vector<Triangle>& triangles) {
         std::vector<QBVHNode> nodes;
 
         std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
@@ -20,7 +20,7 @@ namespace XEngine::QBVH {
 
             // 計算 AABB
             for (int i = start; i < end; i++) {
-                graphics::Triangle triangle = triangles[i];
+                Triangle triangle = triangles[i];
                 Bounds::Bounds3 TriangleAABB(
 					triangle.v1,
 					triangle.v2,
@@ -42,14 +42,14 @@ namespace XEngine::QBVH {
             // 分配到8個象限
             std::vector<std::vector<int>> childLists(8);
             for (int i = start; i < end; i++) {
-                graphics::Triangle triangle = triangles[i];
+                Triangle triangle = triangles[i];
                 int oct = aabb.octant((triangle.v1 + triangle.v2 + triangle.v3) / 3.0f);
                 childLists[oct].push_back(i);
             }
 
             int childEnds[8];
             {
-                std::vector<graphics::Triangle> tmp(triangles.begin() + start, triangles.begin() + end);
+                std::vector<Triangle> tmp(triangles.begin() + start, triangles.begin() + end);
                 int write = start;
                 for (int i = 0; i < 8; i++) {
                     for (int origIdx : childLists[i]) {

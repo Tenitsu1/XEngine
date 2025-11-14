@@ -1,1 +1,1 @@
-#include "graphics/structs.h"
+#include "graphics/structs.hpp"

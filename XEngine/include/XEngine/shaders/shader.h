@@ -8,7 +8,7 @@
 
 #include <unordered_map>
 
-namespace XEngine::graphics
+namespace XEngine
 {
 
 	class Shader
