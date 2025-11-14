@@ -30,11 +30,20 @@ float luminance(vec3 color) {
 PixelColor getPixelColors(vec2 texCoords, vec2 texelSize) {
 	// 獲取當前像素和周圍像素的顏色
 	PixelColor pc;
+	vec2 MAX = vec2(1.0);
+	vec2 MIN = vec2(0.0);
+	vec2 north, south, east, west;
+
+	north = clamp(texCoords + vec2(0.0, texelSize.y), MIN, MAX);
+	south = clamp(texCoords + vec2(0.0, -texelSize.y), MIN, MAX);
+	east = clamp(texCoords + vec2(texelSize.x, 0.0), MIN, MAX);
+	west = clamp(texCoords + vec2(-texelSize.x, 0.0), MIN, MAX);
+
 	pc.color = texture(screenTexture, texCoords).rgb;
-	pc.north = texture(screenTexture, texCoords + vec2(0.0, texelSize.y)).rgb;
-	pc.south = texture(screenTexture, texCoords + vec2(0.0, -texelSize.y)).rgb;
-	pc.east = texture(screenTexture, texCoords + vec2(texelSize.x, 0.0)).rgb;
-	pc.west = texture(screenTexture, texCoords + vec2(-texelSize.x, 0.0)).rgb;
+	pc.north = texture(screenTexture, north).rgb;
+	pc.south = texture(screenTexture, south).rgb;
+	pc.east = texture(screenTexture, east).rgb;
+	pc.west = texture(screenTexture, west).rgb;
 	return pc;
 }
 

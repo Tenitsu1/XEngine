@@ -1,6 +1,6 @@
 ﻿#version 460 core
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
-layout(rgba32f, binding = 0) uniform writeonly image2D destTex;
+layout(rgba32f, binding = 0) uniform writeonly image2D screenTexture;
 
 // SSBO 相關定義 (保持不變)
 struct QBVHNode {
@@ -301,5 +301,5 @@ void main()
             break;
         }
     }
-    imageStore(destTex, ivec2(pixel), vec4(color, 1.0));
+    imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
 }

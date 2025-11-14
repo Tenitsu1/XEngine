@@ -2,7 +2,6 @@
 
 #include "core/window.h"
 #include "managers/logmanager.h"
-#include "managers/rendermanager.h"
 
 namespace XEngine
 {
@@ -19,9 +18,6 @@ namespace XEngine
 		inline App& getApp() { return *mApp; }
 		inline core::Window& getWindow() { return mWindow; }
 
-		// Managers
-		inline managers::RenderManager& getRenderManager() { return mRenderManager; }
-
 
 	private:
 		void getInfo();
@@ -35,7 +31,6 @@ namespace XEngine
 
 		// Managers
 		managers::LogManager mLogManager;
-		managers::RenderManager mRenderManager;
 
 		// Singleton
 		Engine();

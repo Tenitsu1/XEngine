@@ -1,6 +1,5 @@
 ﻿#include "graphics/shader.h"
 #include "log.h"
-#include "graphics/helper.h"
 
 #include "glad/glad.h"
 

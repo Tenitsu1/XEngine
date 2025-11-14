@@ -54,7 +54,7 @@ namespace XEngine::graphics
 			void setUniformCamera(const std::string& baseName, const Camera& cam);
 
 
-			inline uint32_t getTextureId() const { return mTexture; }
+			inline uint32_t getTexture() const { return mTexture; }
 
 			void createDebugSSBO(uint32_t binding);
 

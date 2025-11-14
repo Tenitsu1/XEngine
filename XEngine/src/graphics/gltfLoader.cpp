@@ -1,9 +1,9 @@
 ﻿#include "graphics/gltfLoader.h"
 
 #define TINYGLTF_IMPLEMENTATION
-//#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-//#define STBI_MSC_SECURE_CRT
+#define STBI_MSC_SECURE_CRT
 #define TINYGLTF_NOEXCEPTION
 #define JSON_NOEXCEPTION
 #include "external/tinygltf/tiny_gltf.h"

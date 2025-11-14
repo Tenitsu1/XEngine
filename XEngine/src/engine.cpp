@@ -68,8 +68,6 @@ namespace XEngine
 		core::WindowProperties props = mApp->getWindowProperties();
 		if (mWindow.create(props))
 		{
-			// initialize Managers
-			mRenderManager.initialize();
 
 			ret = true;
 			mIsRunning = true;
@@ -101,7 +99,6 @@ namespace XEngine
 		// Shutdown App
 		mApp->shutdown();
 		// Shutdown Managers - usually in reverse order
-		mRenderManager.shutdown();
 		mLogManager.shutdown();
 
 		// Shutdown SDL

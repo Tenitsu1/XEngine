@@ -3,12 +3,9 @@
 
 #include "XEngine/log.h"
 
-#include "XEngine/graphics/vertexbuffer.h"
 #include "XEngine/graphics/ComputeShader.h"
 #include "XEngine/graphics/shader.h"
-#include "XEngine/graphics/framebuffer.h"
 #include "XEngine/graphics/gltfLoader.h"
-#include "XEngine/graphics/texture.h"
 #include "XEngine/graphics/structs.h"
 
 #include "XEngine/input/mouse.h"
@@ -27,8 +24,6 @@ class Editor : public XEngine::App
 {
 
 private:
-	std::shared_ptr<graphics::VertexArray> mVertexArray;
-	std::shared_ptr<graphics::Texture> mTexture;
 	std::shared_ptr<graphics::ComputeShader> mComputeShader;
 	std::shared_ptr<graphics::Shader> mShader;
 	tinygltf::Model mtinyModel;
@@ -77,9 +72,7 @@ public:
 			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(graphics::Triangle), triangles.data(), 2);
 		}
 
-		// --- VertexArray ---
-		mVertexArray = std::make_shared<graphics::VertexArray>();
-		mVertexArray->upload();
+
 
 		// --- 新增：印出包圍盒日誌 ---
 		glm::vec3 boundsMin = mModel->getBoundsMin();
@@ -138,33 +131,7 @@ public:
 
 	void render() override
 	{
-		auto rc = std::make_unique<graphics::rendercommands::RenderShader>(mVertexArray,mShader,mComputeShader);
-
-		Engine::Instance().getRenderManager().submit(std::move(rc));
-
-		Engine::Instance().getRenderManager().fulsh();
-
-
-		//static bool hasPrinted = false;
-		//if (!hasPrinted)
-		//{
-		//	auto dbgDataOpt = mComputeShader->readDebugData();
-		//	if (dbgDataOpt.has_value())
-		//	{
-		//		const auto& dbgData = dbgDataOpt.value();
-		//		XENGINE_TRACE("--- GPU DEBUG DUMP ---");
-		//		XENGINE_TRACE("Ray Origin: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayOrigin.x, dbgData.dbg_rayOrigin.y, dbgData.dbg_rayOrigin.z);
-		//		XENGINE_TRACE("Ray Dir:    ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_rayDir.x, dbgData.dbg_rayDir.y, dbgData.dbg_rayDir.z);
-		//		XENGINE_TRACE("Triangle v0: ({:.2f}, {:.2f}, {:.2f})", dbgData.dbg_v0.x, dbgData.dbg_v0.y, dbgData.dbg_v0.z);
-		//		XENGINE_TRACE("Determinant (a): {:.7f}", dbgData.dbg_det);
-		//		XENGINE_TRACE("u: {:.7f}", dbgData.dbg_u);
-		//		XENGINE_TRACE("v: {:.7f}", dbgData.dbg_v);
-		//		XENGINE_TRACE("t: {:.7f}", dbgData.dbg_t);
-		//		XENGINE_TRACE("----------------------");
-		//		hasPrinted = true;
-		//	}
-		//}
-		//mComputeShader->readDebugData();
+		mComputeShader->DispatchCompute();
 		
 	}
 
@@ -209,7 +176,7 @@ public:
 			auto& window = Engine::Instance().getWindow();
 
 			ImGui::Image(
-					(void*)(intptr_t)mComputeShader->getTextureId(),
+					(void*)(intptr_t)mComputeShader->getTexture(),
 					{1280, 720 },
 					ImVec2(0, 1),
 					ImVec2(1, 0));

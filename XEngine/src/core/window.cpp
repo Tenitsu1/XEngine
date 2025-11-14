@@ -9,8 +9,6 @@
 
 
 #include "app.h"
-#include "graphics/framebuffer.h"
-
 #include "input/mouse.h"
 #include "input/keyboard.h"
 
@@ -70,9 +68,6 @@ namespace XEngine::core
 		
 		SDL_GL_SetSwapInterval(0); // disable vsync
 
-		mFramebuffer = std::make_shared<graphics::Framebuffer>(props.width, props.height);
-		glm::vec4 clearColor{ props.clearColor.r, props.clearColor.g , props.clearColor.b , 1.0f };
-		mFramebuffer->setClearColor(clearColor);
 
 		mImguiwindow.create(props.imguiProps);
 		return true;
@@ -118,17 +113,13 @@ namespace XEngine::core
 
 	void Window::beginRender()
 	{
-		Engine::Instance().getRenderManager().clear();
-		auto cmd = std::make_unique<graphics::rendercommands::PushFramebuffer>(mFramebuffer);
-		Engine::Instance().getRenderManager().submit(std::move(cmd));
+
 	}
 
 	void Window::endRender()
 	{
 		
-		auto cmd = std::make_unique<graphics::rendercommands::PopFramebuffer>();
-		Engine::Instance().getRenderManager().submit(std::move(cmd));
-		Engine::Instance().getRenderManager().fulsh();
+
 		mImguiwindow.beginRender();
 		Engine::Instance().getApp().imguiRender();
 		mImguiwindow.endRender();

@@ -1,6 +1,5 @@
 ﻿#include "graphics/ComputeShader.h"
 #include "log.h"
-#include "graphics/helper.h"
 #include "glad/glad.h"
 #include "graphics/structs.h"
 
@@ -125,6 +124,7 @@ namespace XEngine::graphics
 
 	void ComputeShader::DispatchCompute()
 	{
+		glUseProgram(mProgramId);
 		glBindImageTexture(0, mTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 		glDispatchCompute((mWidth + 15) / 16, (mHeight + 15) / 16, 1);
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
