@@ -24,10 +24,6 @@ namespace XEngine::OBVH {
         glm::ivec4 info;      // z=start, w=count
     };
 
-<<<<<<< HEAD:XEngine/include/XEngine/accelerators/qbvh.h
-    std::vector<QBVHNode> buildQBVH(std::vector<Triangle>& triangles);
-=======
-    std::vector<OBVHNode> buildOBVH(std::vector<graphics::Triangle>& triangles);
->>>>>>> 7e8ffb947f3154da494bcfc1cff3442327c4bb53:XEngine/include/XEngine/accelerators/obvh.h
+    std::vector<OBVHNode> buildOBVH(std::vector<Triangle>& triangles);
 }
 #endif

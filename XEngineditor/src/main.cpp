@@ -68,13 +68,9 @@ public:
 		auto obvhNodes = OBVH::buildOBVH(triangles);
 		if (mTriangleCount > 0)
 		{
-<<<<<<< HEAD
-			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)qbvhNodes.size() * sizeof(QBVH::QBVHNode), qbvhNodes.data(), 1);
-			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 2);
-=======
 			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.data(), 1);
-			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(graphics::Triangle), triangles.data(), 2);
->>>>>>> 7e8ffb947f3154da494bcfc1cff3442327c4bb53
+			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 2);
+
 		}
 
 

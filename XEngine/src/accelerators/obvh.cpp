@@ -5,16 +5,9 @@
 #include "graphics/structs.hpp"
 
 
-
-<<<<<<< HEAD:XEngine/src/accelerators/qbvh.cpp
-namespace XEngine::QBVH {
-    std::vector<QBVHNode> buildQBVH(std::vector<Triangle>& triangles) {
-        std::vector<QBVHNode> nodes;
-=======
 namespace XEngine::OBVH {
-    std::vector<OBVHNode> buildOBVH(std::vector<graphics::Triangle>& triangles) {
+    std::vector<OBVHNode> buildOBVH(std::vector<Triangle>& triangles) {
         std::vector<OBVHNode> nodes;
->>>>>>> 7e8ffb947f3154da494bcfc1cff3442327c4bb53:XEngine/src/accelerators/obvh.cpp
 
         std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
             int count = end - start;
@@ -26,13 +19,8 @@ namespace XEngine::OBVH {
 
             // 計算 AABB
             for (int i = start; i < end; i++) {
-<<<<<<< HEAD:XEngine/src/accelerators/qbvh.cpp
                 Triangle triangle = triangles[i];
-                Bounds::Bounds3 TriangleAABB(
-=======
-                graphics::Triangle triangle = triangles[i];
                 Bounds::Bound3 TriangleAABB(
->>>>>>> 7e8ffb947f3154da494bcfc1cff3442327c4bb53:XEngine/src/accelerators/obvh.cpp
 					triangle.v1,
 					triangle.v2,
 					triangle.v3
