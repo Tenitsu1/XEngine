@@ -11,7 +11,7 @@
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
 
-#include "XEngine/accelerators/qbvh.h"
+#include "XEngine/accelerators/obvh.h"
 
 #include "external/imgui/imgui.h"
 #include "external/glm/glm.hpp"
@@ -65,11 +65,16 @@ public:
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
 		mComputeShader->createDebugSSBO(4);
-		auto qbvhNodes = QBVH::buildQBVH(triangles);
+		auto obvhNodes = OBVH::buildOBVH(triangles);
 		if (mTriangleCount > 0)
 		{
+<<<<<<< HEAD
 			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)qbvhNodes.size() * sizeof(QBVH::QBVHNode), qbvhNodes.data(), 1);
 			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 2);
+=======
+			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.data(), 1);
+			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(graphics::Triangle), triangles.data(), 2);
+>>>>>>> 7e8ffb947f3154da494bcfc1cff3442327c4bb53
 		}
 
 
