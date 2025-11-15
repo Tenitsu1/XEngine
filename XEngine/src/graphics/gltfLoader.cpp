@@ -70,6 +70,7 @@ namespace XEngine::graphics
 			XENGINE_TRACE("Loaded gltf : {}", filename);
 		}
 
+		loadTextures(model);
 		vaoAndEbos = bindModel(model);
 		// extractTriangles(model);
 		extractMesh(model);
@@ -86,6 +87,11 @@ namespace XEngine::graphics
 			glDeleteBuffers(1, &val);
 		}
 		vaoAndEbos.second.clear(); // 清空 map
+
+		if (!mTextures.empty()) {
+			glDeleteTextures((GLsizei)mTextures.size(), mTextures.data());
+			mTextures.clear();
+		}
 	}
 
 	void GLTFStaticMesh::bindMesh(std::map<int, GLuint>& vbos,
@@ -149,54 +155,54 @@ namespace XEngine::graphics
 					XENGINE_WARN("vaa missing: {}", attrib.first);
 			}
 
-			if (model.textures.size() > 0) {
-				// fixme: Use material's baseColor
-				tinygltf::Texture& tex = model.textures[0];
+			//if (model.textures.size() > 0) {
+			//	// fixme: Use material's baseColor
+			//	tinygltf::Texture& tex = model.textures[0];
 
-				if (tex.source > -1) {
+			//	if (tex.source > -1) {
 
-					GLuint texid;
-					glGenTextures(1, &texid);
+			//		GLuint texid;
+			//		glGenTextures(1, &texid);
 
-					tinygltf::Image& image = model.images[tex.source];
+			//		tinygltf::Image& image = model.images[tex.source];
 
-					glBindTexture(GL_TEXTURE_2D, texid);
-					glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			//		glBindTexture(GL_TEXTURE_2D, texid);
+			//		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+			//		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			//		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			//		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			//		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-					GLenum format = GL_RGBA;
+			//		GLenum format = GL_RGBA;
 
-					if (image.component == 1) {
-						format = GL_RED;
-					}
-					else if (image.component == 2) {
-						format = GL_RG;
-					}
-					else if (image.component == 3) {
-						format = GL_RGB;
-					}
-					else {
-						// ???
-					}
+			//		if (image.component == 1) {
+			//			format = GL_RED;
+			//		}
+			//		else if (image.component == 2) {
+			//			format = GL_RG;
+			//		}
+			//		else if (image.component == 3) {
+			//			format = GL_RGB;
+			//		}
+			//		else {
+			//			// ???
+			//		}
 
-					GLenum type = GL_UNSIGNED_BYTE;
-					if (image.bits == 8) {
-						// ok
-					}
-					else if (image.bits == 16) {
-						type = GL_UNSIGNED_SHORT;
-					}
-					else {
-						// ???
-					}
+			//		GLenum type = GL_UNSIGNED_BYTE;
+			//		if (image.bits == 8) {
+			//			// ok
+			//		}
+			//		else if (image.bits == 16) {
+			//			type = GL_UNSIGNED_SHORT;
+			//		}
+			//		else {
+			//			// ???
+			//		}
 
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
-						format, type, &image.image.at(0));
-				}
-			}
+			//		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
+			//			format, type, &image.image.at(0));
+			//	}
+			//}
 		}
 	}
 
@@ -252,6 +258,47 @@ namespace XEngine::graphics
 		}
 	}
 
+	void GLTFStaticMesh::loadTextures(tinygltf::Model& model)
+	{
+		mTextures.resize(model.textures.size());
+		glGenTextures((GLsizei)model.textures.size(), mTextures.data());
+
+		for (size_t i = 0; i < model.textures.size(); i++) {
+			const tinygltf::Texture& tex = model.textures[i];
+
+			if (tex.source < 0) {
+				continue;
+			}
+
+			glBindTexture(GL_TEXTURE_2D, mTextures[i]);
+
+			const tinygltf::Image& image = model.images[tex.source];
+
+			GLenum format = GL_RGBA;
+			if (image.component == 1) format = GL_RED;
+			else if (image.component == 2) format = GL_RG;
+			else if (image.component == 3) format = GL_RGB;
+
+			GLenum type = GL_UNSIGNED_BYTE;
+			if (image.bits == 16) type = GL_UNSIGNED_SHORT;
+
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
+				format, type, &image.image.at(0));
+
+			// 設置紋理參數 (Sampler)
+			// 你可以從 glTF 的 sampler 對象中讀取這些參數，這裡我們先用通用設置
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			// 生成 Mipmap
+			glGenerateMipmap(GL_TEXTURE_2D);
+
+			glBindTexture(GL_TEXTURE_2D, 0); // Unbind
+		}
+	}
+
 
 	void GLTFStaticMesh::drawMesh(const std::map<int, GLuint>& vbos,
 		tinygltf::Model& model, tinygltf::Mesh& mesh) {
@@ -259,11 +306,29 @@ namespace XEngine::graphics
 			tinygltf::Primitive primitive = mesh.primitives[i];
 			tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
 
+			// <-- 新增紋理綁定邏輯
+			if (primitive.material >= 0) {
+				const tinygltf::Material& material = model.materials[primitive.material];
+				if (material.pbrMetallicRoughness.baseColorTexture.index >= 0) {
+					// 激活紋理單元 0
+					glActiveTexture(GL_TEXTURE0);
+					// 獲取紋理索引並綁定
+					int tex_idx = material.pbrMetallicRoughness.baseColorTexture.index;
+					glBindTexture(GL_TEXTURE_2D, mTextures[tex_idx]);
+					// 假設你的 shader 中的 sampler uniform 已經設置為 0
+					// (例如: shader->setInt("texture_diffuse1", 0);)
+				}
+			}
+
+
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbos.at(indexAccessor.bufferView));
 
 			glDrawElements(primitive.mode, (GLsizei)indexAccessor.count,
 				indexAccessor.componentType,
 				BUFFER_OFFSET(indexAccessor.byteOffset));
+
+			// (可選) 解除綁定，避免狀態洩漏
+			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 	}
 
@@ -495,6 +560,7 @@ namespace XEngine::graphics
 		mMesh.vertices.clear();
 		mMesh.normals.clear();
 		mMesh.indices.clear();
+		mMesh.texCoords.clear();
 		const tinygltf::Scene& scene = model.scenes[model.defaultScene > -1 ? model.defaultScene : 0];
 
 		// 從根節點開始，初始變換是單位矩陣
@@ -541,6 +607,19 @@ namespace XEngine::graphics
 					const tinygltf::Buffer& normalBuffer = model.buffers[normalBufferView.buffer];
 					normalBufferStart = &normalBuffer.data[normalBufferView.byteOffset + normalAccessor->byteOffset];
 					normalByteStride = normalAccessor->ByteStride(normalBufferView);
+				}
+
+				// --- [新增] 紋理座標 (UV) 数据 ---
+				const uint8_t* uvBufferStart = nullptr;
+				size_t uvByteStride = 0;
+				const tinygltf::Accessor* uvAccessor = nullptr;
+				// glTF 通常使用 TEXCOORD_0 作為第一層 UV
+				if (primitive.attributes.count("TEXCOORD_0")) {
+					uvAccessor = &model.accessors.at(primitive.attributes.at("TEXCOORD_0"));
+					const tinygltf::BufferView& uvBufferView = model.bufferViews[uvAccessor->bufferView];
+					const tinygltf::Buffer& uvBuffer = model.buffers[uvBufferView.buffer];
+					uvBufferStart = &uvBuffer.data[uvBufferView.byteOffset + uvAccessor->byteOffset];
+					uvByteStride = uvAccessor->ByteStride(uvBufferView);
 				}
 
 				// --- 獲取頂點總數以進行邊界檢查 ---
@@ -596,6 +675,24 @@ namespace XEngine::graphics
 					glm::vec3 v1_local(v1_ptr[0], v1_ptr[1], v1_ptr[2]);
 					glm::vec3 v2_local(v2_ptr[0], v2_ptr[1], v2_ptr[2]);
 
+					// --- [新增] 讀取 UV 座標 ---
+					glm::vec2 uv0(0.0f), uv1(0.0f), uv2(0.0f);
+					if (uvBufferStart && uvAccessor) {
+						// 注意邊界檢查
+						if (i0 < uvAccessor->count) {
+							const float* uv0_ptr = reinterpret_cast<const float*>(uvBufferStart + i0 * uvByteStride);
+							uv0 = glm::vec2(uv0_ptr[0], uv0_ptr[1]);
+						}
+						if (i1 < uvAccessor->count) {
+							const float* uv1_ptr = reinterpret_cast<const float*>(uvBufferStart + i1 * uvByteStride);
+							uv1 = glm::vec2(uv1_ptr[0], uv1_ptr[1]);
+						}
+						if (i2 < uvAccessor->count) {
+							const float* uv2_ptr = reinterpret_cast<const float*>(uvBufferStart + i2 * uvByteStride);
+							uv2 = glm::vec2(uv2_ptr[0], uv2_ptr[1]);
+						}
+					}
+
 					glm::vec3 n0_local(0.0f, 1.0f, 0.0f), n1_local(0.0f, 1.0f, 0.0f), n2_local(0.0f, 1.0f, 0.0f);
 					if (normalBufferStart && normalAccessor && i0 < normalAccessor->count && i1 < normalAccessor->count && i2 < normalAccessor->count) {
 						const float* n0_ptr = reinterpret_cast<const float*>(normalBufferStart + i0 * normalByteStride);
@@ -628,26 +725,42 @@ namespace XEngine::graphics
 					glm::vec4 v1_local_v4(v1_local, 1.0f);
 					glm::vec4 v2_local_v4(v2_local, 1.0f);
 					glm::ivec4 indice(-1, -1, -1, -1);
+					// [重要修改] 去重現在必須檢查 位置 AND UV
+					// 如果位置相同但 UV 不同，視為不同頂點 (例如貼圖接縫處)
+					// 假設 mMesh 有一個 std::vector<glm::vec2> texCoords;
 					for (int i = 0; i < mMesh.vertices.size(); i++) {
-						if (mMesh.vertices[i] == v0_local_v4) {
-							indice.x = i;
-						}
-						if (mMesh.vertices[i] == v1_local_v4) {
-							indice.y = i;
-						}
-						if (mMesh.vertices[i] == v2_local_v4) {
-							indice.z = i;
-						}
+						// 這裡使用了 epsilon 比較 (glm::equal 可能需要定義 epsilon，或者直接比較)
+						// 為了簡單起見，這裡假設 operator== 已正確重載或直接比較
+						bool p0_match = (mMesh.vertices[i] == v0_local_v4) && (mMesh.texCoords[i] == uv0);
+						bool p1_match = (mMesh.vertices[i] == v1_local_v4) && (mMesh.texCoords[i] == uv1);
+						bool p2_match = (mMesh.vertices[i] == v2_local_v4) && (mMesh.texCoords[i] == uv2);
+
+						if (p0_match) indice.x = i;
+						if (p1_match) indice.y = i;
+						if (p2_match) indice.z = i;
+
 						if (indice.x != -1 && indice.y != -1 && indice.z != -1) {
-							break; // 提前退出循環以提高效率
+							break;
 						}
 					}
-					for (int i = 0; i < 3; i++) {
+
+					for (int i = 0; i < 3; i++)
+					{
 						if (indice[i] == -1) {
 							indice[i] = static_cast<int>(mMesh.vertices.size());
-							if (i == 0) mMesh.vertices.push_back(v0_local_v4);
-							if (i == 1) mMesh.vertices.push_back(v1_local_v4);
-							if (i == 2) mMesh.vertices.push_back(v2_local_v4);
+							// 根據索引將對應的 位置 和 UV 存入
+							if (i == 0) {
+								mMesh.vertices.push_back(v0_local_v4);
+								mMesh.texCoords.push_back(uv0); // [新增] 存入 UV
+							}
+							if (i == 1) {
+								mMesh.vertices.push_back(v1_local_v4);
+								mMesh.texCoords.push_back(uv1); // [新增] 存入 UV
+							}
+							if (i == 2) {
+								mMesh.vertices.push_back(v2_local_v4);
+								mMesh.texCoords.push_back(uv2); // [新增] 存入 UV
+							}
 						}
 					}
 					mMesh.indices.push_back(indice);
@@ -682,5 +795,3 @@ namespace XEngine::graphics
 	}
 
 }
-
-

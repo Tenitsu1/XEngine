@@ -47,6 +47,13 @@ layout(std430, binding = 4) buffer NormalsBuffer {
     vec4 normals[];
 };
 
+layout(std430, binding = 5) buffer TexCoordsBuffer {
+    vec2 texCoords[];
+};
+
+layout(binding = 6) uniform sampler2D u_texture;
+
+
 uniform vec2 u_resolution; 
 uniform Camera camera;
 uniform mat4 invViewProj;
@@ -117,31 +124,31 @@ float calculateAttenuation(float dist) {
 }
 
 // --- 新增 rayTriangleIntersect 函式 (你的版本) ---
-float rayTriangleIntersect(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
+vec3 rayTriangleIntersect(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
     vec3 edge1 = p1 - p0;
     vec3 edge2 = p2 - p0;
     vec3 pvec = cross(ray.direction, edge2);
     float det = dot(edge1, pvec);
 
     if (abs(det) < EPSILON) {
-        return -1.0;
+        return vec3(-1.0); 
     }
 
     float invDet = 1.0 / det;
     vec3 tvec = ray.origin - p0;
     float u = dot(tvec, pvec) * invDet;
     if (u < 0.0 || u > 1.0) {
-        return -1.0;
+        return vec3(-1.0);
     }
 
     vec3 qvec = cross(tvec, edge1);
     float v = dot(ray.direction, qvec) * invDet;
     if (v < 0.0 || u + v > 1.0) {
-        return -1.0;
+        return vec3(-1.0);
     }
 
     float t = dot(edge2, qvec) * invDet;
-    return t;
+    return vec3(t, u, v);
 }
 
 bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
@@ -184,12 +191,30 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                 vec3 p2 = vertices[index.z].xyz;
                 vec3 normal = normals[i].xyz;
 
-                float t = rayTriangleIntersect(ray, p0, p1, p2);
+                vec3 intersection = rayTriangleIntersect(ray, p0, p1, p2);
+                float t = intersection.x;
+                float u = intersection.y;
+                float v = intersection.z;
+
                 if (t > 0.0 && t < rec.t) {
                     rec.t = t;
                     hit = true;
-                    tempNormal = normal;
-                    tempColor = vec3(1.0, 0.0, 0.0);
+
+                    // [修改] 內插法線以獲得平滑著色
+                    vec3 n0 = normals[index.x].xyz;
+                    vec3 n1 = normals[index.y].xyz;
+                    vec3 n2 = normals[index.z].xyz;
+                    // 使用重心座標 (1-u-v, u, v) 進行內插
+                    tempNormal = normalize((1.0 - u - v) * n0 + u * n1 + v * n2);
+
+                    // [修改] 內插 UV 座標並從紋理採樣
+                    vec2 uv0 = texCoords[index.x];
+                    vec2 uv1 = texCoords[index.y];
+                    vec2 uv2 = texCoords[index.z];
+                    vec2 hitUV = (1.0 - u - v) * uv0 + u * uv1 + v * uv2;
+                    
+                    // 從紋理採樣顏色
+                    tempColor = texture(u_texture, hitUV).rgb;
                 }
             }
         } else {

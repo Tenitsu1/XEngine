@@ -54,6 +54,7 @@ namespace XEngine
 
 			void setUniformCamera(const std::string& baseName, const Camera& cam);
 
+			void bindTexture(uint32_t textureID, int textureUnit);
 
 			inline uint32_t getTexture() const { return mTexture; }
 

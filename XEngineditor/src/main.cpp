@@ -34,6 +34,7 @@ private:
 	GLuint mIndicesSSBO = 0;  // 新增索引 SSBO 的 ID
 	GLuint mNormalsSSBO = 0;  // 新增法線 SSBO 的 ID
 	GLuint mOBVHSSBO = 0;     // OBVH SSBO ID
+	GLuint mTexCoordsSSBO = 0;
 	int mTriangleCount = 0;   // 三角形數量
 
 	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
@@ -44,7 +45,7 @@ private:
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
 	float zkeyOffset = 5.f;
-	float keySpeed = 0.05f;
+	float keySpeed = 0.005f;
 	float size = 0.5f;
 	int samples_per_pixel = 1;
 	Camera camera;
@@ -67,12 +68,12 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\TexCube2.gltf");
 		auto& Mesh = mModel->getMesh();
 		mTriangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
-		mComputeShader->createDebugSSBO(4);
+		mComputeShader->createDebugSSBO(7);
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
 		if (mTriangleCount > 0)
 		{
@@ -80,6 +81,20 @@ public:
 			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.data(), 2);
 			mComputeShader->createSSBO(mIndicesSSBO, (uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.data(), 3);
 			mComputeShader->createSSBO(mNormalsSSBO, (uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.data(), 4);
+			XENGINE_TRACE("Vertices SSBO created, size: {}, count: {}",
+				(uint32_t)Mesh.vertices.size() * sizeof(glm::vec2), Mesh.vertices.size());
+			XENGINE_TRACE("Indices SSBO created, size: {}, count: {}",
+				(uint32_t)Mesh.indices.size() * sizeof(glm::vec2), Mesh.indices.size());
+			XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
+				(uint32_t)Mesh.normals.size() * sizeof(glm::vec2), Mesh.normals.size());
+			if (!Mesh.texCoords.empty()) {
+				mComputeShader->createSSBO(mTexCoordsSSBO, (uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.data(), 5);
+				XENGINE_TRACE("TexCoords SSBO created, size: {}, count: {}",
+					(uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.size());
+			}
+			else {
+				XENGINE_WARN("Model has no texture coordinates!");
+			}
 
 		}
 
@@ -128,12 +143,12 @@ public:
 		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed; }
 		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed; }
 
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_UP)) { zkeyOffset -= keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_DOWN)) { zkeyOffset += keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTime; }
+		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed ; }
+		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed; }
+		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_UP)) { zkeyOffset -= keySpeed * deltaTime; }
+		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_DOWN)) { zkeyOffset += keySpeed * deltaTime; }
+		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTime; }
+		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTime; }
 
 		// Mouse and keyborad input 
 		//float xNorm = input::Mouse::X() / (float)windowSize.x;
@@ -189,6 +204,24 @@ public:
 		mComputeShader->setUniformMat4("invViewProj", invViewProj);
 		mComputeShader->setUniformInt("max_depth", 5);
 		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
+
+		const auto& textures = mModel->getTextures();
+		if (!textures.empty())
+		{
+			// 3. 告訴 shader sampler 使用紋理單元 6
+			int textureUnit = 6;
+			mComputeShader->setUniformInt("u_texture", textureUnit);
+
+			// 4. 將模型的第一個紋理綁定到紋理單元 6
+			//    (這裡我們調用假設的 bindTexture 方法)
+			GLuint textureID_to_bind = textures[0]; // 假設我們總是使用第一個紋理
+			mComputeShader->bindTexture(textureID_to_bind, textureUnit);
+		}
+		else
+		{
+			// 可選：如果沒有紋理，可以綁定一個空的或白色的紋理，避免 GPU 出錯
+			// mComputeShader->bindTexture(0, 6); // 綁定 0 等於解綁
+		}
 		
 	}
 
@@ -202,7 +235,7 @@ public:
 		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID);
 		/*ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID);*/
 		//ImGuiDockNodeFlags_PassthruCentralNode
-		
+		ImGuiIO& io = ImGui::GetIO();
 		ImGui::ShowDemoWindow();
 
 		if (ImGui::Begin("Test1"))
@@ -231,11 +264,12 @@ public:
 
 		if (ImGui::Begin("Metrics/Debugger"))
 		{
-			ImGuiIO& io = ImGui::GetIO();
+			
 			ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 			ImGui::Text("%d vertices,\n%d indices (%d triangles)", io.MetricsRenderVertices, io.MetricsRenderIndices, mTriangleCount);
 		}
 		ImGui::End();
+
 
 		if (ImGui::Begin("Sence"))
 		{
