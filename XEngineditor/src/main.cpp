@@ -67,7 +67,7 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\chair.gltf");
 		auto& Mesh = mModel->getMesh();
 		mTriangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
@@ -118,22 +118,24 @@ public:
 		laseTime = nowTime;
 		nowTime = Engine::Instance().getWindow().getDeltaTime();
 		deltaTime = (float)((nowTime - laseTime) * 1000 / (float)Engine::Instance().getWindow().getDeltaTime());
+
+		float deltaTimeMax = deltaTime * 10000;
 		
 
 		// Camera Updata
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) { camera.position -= keySpeed * camera.lookat; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) { camera.position += keySpeed * camera.lookat; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) { camera.position -= glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) { camera.position += glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) { camera.position -= keySpeed * camera.lookat * deltaTimeMax; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) { camera.position += keySpeed * camera.lookat * deltaTimeMax; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) { camera.position -= glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) { camera.position += glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTimeMax; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTimeMax; }
 
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_UP)) { zkeyOffset -= keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_DOWN)) { zkeyOffset += keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTime; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTime; }
+		// if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * deltaTime; }
+		// if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * deltaTime; }
+		// if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_UP)) { zkeyOffset -= keySpeed * deltaTime; }
+		// if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_DOWN)) { zkeyOffset += keySpeed * deltaTime; }
+		// if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTime; }
+		// if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTime; }
 
 		// Mouse and keyborad input 
 		//float xNorm = input::Mouse::X() / (float)windowSize.x;

@@ -23,12 +23,18 @@ struct Ray {
     vec3 direction;
 };
 
+struct Material {
+    int type;        // 材質類型，例如 DIFFUSE, GLASS, LIGHT
+    float roughness; // 粗糙度（可選）
+    float ior;       // 折射率（可選，玻璃用）
+};
+
 struct HitRecord {
     vec3 pos;
     vec3 normal;
     vec3 color;
+    Material material;
     float t;
-    bool is_light;
 };
 
 layout(std430, binding = 1) buffer QBVHNodeBuffer {
@@ -100,7 +106,7 @@ vec3 random_unit_vector(vec2 co) {
     float z = random(co) * 2.0 - 1.0; // z in [-1, 1]
     float t = random(co + vec2(1.0, 1.0)) * 6.28318530718; // t in [0, 2π]
     float r = sqrt(1.0 - z * z); // radius at z
-    return vec3(r * cos(t), r * sin(t), z);
+    return normalize(vec3(r * cos(t), r * sin(t), z));
 }
 
 vec3 random_in_hemisphere(vec3 normal, vec2 seed) {
@@ -108,6 +114,41 @@ vec3 random_in_hemisphere(vec3 normal, vec2 seed) {
     return dot(in_unit, normal) > 0.0 ? in_unit : -in_unit;
 }
 
+
+// ------------------------------------------------
+// 材質類型常數
+const int LIGHT = 0;
+const int DIFFUSE = 1;
+const int GLASS = 2;
+
+// 取得材質屬性函式
+Material getMaterial(int material) {
+    Material mat;
+    if (material == LIGHT) {
+        mat.type = LIGHT;
+    } else if (material == DIFFUSE) {
+        mat.type = DIFFUSE;
+        mat.roughness = 0.5;
+    } else if (material == GLASS) {
+        mat.type = GLASS;
+        mat.ior = 1.5;
+    } else {
+        mat.type = DIFFUSE;
+        mat.roughness = 0.5;
+    }
+    return mat;
+}
+
+vec3 refract(vec3 I, vec3 N, float eta) {
+    // 反射向量計算
+    float cosI = dot(-I, N);
+    float sinT2 = eta * eta * (1.0 - cosI * cosI);
+    if (sinT2 > 1.0) return reflect(I, N); // 全反射
+    float cosT = sqrt(1.0 - sinT2);
+    return eta * I + (eta * cosI - cosT) * N;
+}
+// ------------------------------------------------
+// 計算光線衰減函式
 float calculateAttenuation(float dist) {
     // 簡單的平方反比衰減模型
     float constant = 1.0;
@@ -143,7 +184,8 @@ float rayTriangleIntersect(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
     float t = dot(edge2, qvec) * invDet;
     return t;
 }
-
+// ------------------------------------------------
+// --- 新增 hit_qbvh 函式 ---
 bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
     vec3 invD = 1.0 / ray.direction;
     vec3 t0s = (minB - ray.origin) * invD;
@@ -159,6 +201,7 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
     bool hit = false;
     vec3 tempColor = vec3(0.0);
     vec3 tempNormal = vec3(0.0);
+    Material tempMaterial;
 
     int stack[32];
     int stackPtr = 0;
@@ -182,6 +225,8 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                 vec3 p0 = vertices[index.x].xyz;
                 vec3 p1 = vertices[index.y].xyz;
                 vec3 p2 = vertices[index.z].xyz;
+                // int material = GLASS;
+                int material = index.w;
                 vec3 normal = normals[i].xyz;
 
                 float t = rayTriangleIntersect(ray, p0, p1, p2);
@@ -189,7 +234,8 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                     rec.t = t;
                     hit = true;
                     tempNormal = normal;
-                    tempColor = vec3(1.0, 0.0, 0.0);
+                    tempMaterial = getMaterial(material);
+                    tempColor = vec3(0.8, 0.0, 0.0);
                 }
             }
         } else {
@@ -205,6 +251,7 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
     if (hit) {
         rec.pos = ray.origin + rec.t * ray.direction;
         rec.normal = tempNormal;
+        rec.material = tempMaterial;
         rec.color = tempColor;
         return true;
     }
@@ -216,7 +263,7 @@ bool hit_world(Ray ray, out HitRecord rec) {
     bool hitSomething = false;
     vec3 tempColor = vec3(0.0);
     vec3 tempNormal = vec3(0.0);
-    bool is_light = false;
+    Material tempMaterial;
 
     HitRecord triRec;
     triRec.t = rec.t;
@@ -226,7 +273,8 @@ bool hit_world(Ray ray, out HitRecord rec) {
             hitSomething = true;
             tempNormal = triRec.normal;
             tempColor = triRec.color;
-            is_light = false;
+            tempMaterial = triRec.material;
+
         }
     }
 
@@ -237,7 +285,7 @@ bool hit_world(Ray ray, out HitRecord rec) {
     rec.pos = ray.origin + rec.t * ray.direction;
     rec.normal = tempNormal;
     rec.color = tempColor;
-    rec.is_light = is_light;
+    rec.material = tempMaterial;
     return true;
 }
 
@@ -259,7 +307,7 @@ void main()
     // 邊界檢查
     if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
     
-    vec3 color = vec3(0.0);
+    vec3 color;
     
     Ray ray;
     ray.origin = camera.position;
@@ -268,27 +316,29 @@ void main()
     vec3 attenuation = WHITE;
     for (int depth = 0; depth < max_depth; depth++) {
         HitRecord rec;
-        bool hit = hit_world(ray, rec);
+        if (!hit_world(ray, rec)) break;
 
-        if (hit) {
-            if (rec.is_light) {
-                float lightAttenuation = calculateAttenuation(rec.t);
-                color += attenuation * rec.color * lightAttenuation;
-            } else {
-                // 偏移光線起點，避免自相交
-                if (dot(ray.direction, rec.normal) > 0.0) {
-                    rec.normal = -rec.normal;
-                }
-                ray.origin = rec.pos + rec.normal * EPSILON;
-                ray.direction = random_in_hemisphere(rec.normal, rec.pos.xy + float(depth));
-                attenuation *= rec.color;
-            }
-        } else {
-            float a = 0.5 * (ray.direction.y + 1.0);
-            vec3 sky = mix(WHITE, backgroundColor, a);
-            color += attenuation * sky;
+        if (rec.material.type == LIGHT) {
+            // 命中光源直接結束
+            float lightAttenuation = calculateAttenuation(rec.t);
+            color = attenuation * rec.color * lightAttenuation;
             break;
+        } else if (rec.material.type == GLASS) {
+            // 玻璃材質折射
+            float ior = rec.material.ior;
+            float eta = dot(ray.direction, rec.normal) < 0.0 ? (1.0 / ior) : ior;
+            ray.direction = refract(ray.direction, rec.normal, eta);
+            attenuation *= max(vec3(0.8), rec.color) * 0.98;
+        } else {
+            // 漫反射材質
+            vec3 hemiDir = random_in_hemisphere(rec.normal, rec.pos.xy + float(depth));
+            ray.direction = normalize(mix(rec.normal, hemiDir, rec.material.roughness));
+            attenuation *= rec.color * 0.8;
         }
     }
+    float a = 0.5 * (ray.direction.y + 1.0);
+    vec3 BLUE = vec3(0.5, 0.7, 1.0);
+    vec3 sky = mix(WHITE, BLUE, a);
+    color = attenuation * sky;
     imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
 }
