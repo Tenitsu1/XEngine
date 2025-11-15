@@ -77,4 +77,78 @@ namespace XEngine::OBVH {
         buildNode(0, (int)triangles.size(), 0);
         return nodes;
     }
+
+    std::vector<OBVHNode> buildOBVH(Mesh& mesh) {
+        std::vector<OBVHNode> nodes;
+
+        std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
+            int count = end - start;
+            OBVHNode node;
+            node.childrenA = glm::ivec4(-1);
+            node.childrenB = glm::ivec4(-1);
+            node.info = glm::ivec4(-1, -1, start, count);
+            Bounds::Bound3 aabb;
+
+            // 計算 AABB
+            for (int i = start; i < end; i++) {
+                glm::ivec4 face = mesh.indices[i];
+                Bounds::Bound3 TriangleAABB(
+                    mesh.vertices[face.x],
+                    mesh.vertices[face.y],
+                    mesh.vertices[face.z]
+                );
+                aabb = Bounds::Union(aabb, TriangleAABB);
+            }
+            node.aabbMin = aabb.min;
+            node.aabbMax = aabb.max;
+
+            float aabbVolume = aabb.VolumeWithMin(1.0f);
+
+            int currentIndex = (int)nodes.size();
+            nodes.push_back(node);
+
+            if (count <= MAX_LEAF_TRIANGLES || depth >= MAX_DEPTH || aabbVolume < MIN_AABB_VOLUME)
+                return currentIndex; // 葉節點
+
+            // 分配到8個象限
+            std::vector<std::vector<int>> childLists(8);
+            for (int i = start; i < end; i++) {
+                glm::ivec4 face = mesh.indices[i];
+                int oct = aabb.octant((mesh.vertices[face.x] + mesh.vertices[face.y] + mesh.vertices[face.z]) / 3.0f);
+                childLists[oct].push_back(i);
+            }
+
+            int childEnds[8];
+            {
+                std::vector<glm::ivec4> tmpIndices(mesh.indices.begin() + start, mesh.indices.begin() + end);
+                std::vector<glm::vec4> tmpNormals(mesh.normals.begin() + start, mesh.normals.begin() + end);
+                int write = start;
+                for (int i = 0; i < 8; i++) {
+                    for (int origIdx : childLists[i]) {
+                        mesh.indices[write] = std::move(tmpIndices[origIdx - start]);
+                        mesh.normals[write++] = std::move(tmpNormals[origIdx - start]);
+                    }
+                    childEnds[i] = write;
+                }
+            }
+
+            {   // 建立子節點
+                int childStart = start;
+                for (int i = 0; i < 8; i++) {
+                    int childEnd = childEnds[i];
+                    if (childStart < childEnd) {
+                        int childIdx = buildNode(childStart, childEnd, depth + 1);
+                        if (i < 4) node.childrenA[i] = childIdx;
+                        else       node.childrenB[i - 4] = childIdx;
+                        childStart = childEnd;
+                    }
+                }
+            }
+            nodes[currentIndex] = node;
+            return currentIndex;
+        };
+
+        buildNode(0, (int)mesh.indices.size(), 0);
+        return nodes;
+    }
 }

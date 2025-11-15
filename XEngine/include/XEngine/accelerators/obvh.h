@@ -5,6 +5,7 @@
 
 
 struct Triangle;
+struct Mesh;
 
 
 namespace XEngine::OBVH {
@@ -25,5 +26,6 @@ namespace XEngine::OBVH {
     };
 
     std::vector<OBVHNode> buildOBVH(std::vector<Triangle>& triangles);
+    std::vector<OBVHNode> buildOBVH(Mesh& mesh);
 }
 #endif

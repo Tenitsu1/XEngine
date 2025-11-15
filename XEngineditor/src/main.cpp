@@ -29,8 +29,11 @@ private:
 	std::shared_ptr<Shader> mShader;
 	tinygltf::Model mtinyModel;
 	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
-	GLuint mTriangleSSBO = 0; // 新增 SSBO 的 ID
-	GLuint mQBVHSSBO = 0;     // QBVH SSBO ID
+	// GLuint mTriangleSSBO = 0; // 新增 SSBO 的 ID
+	GLuint mVerticesSSBO = 0; // 新增頂點 SSBO 的 ID
+	GLuint mIndicesSSBO = 0;  // 新增索引 SSBO 的 ID
+	GLuint mNormalsSSBO = 0;  // 新增法線 SSBO 的 ID
+	GLuint mOBVHSSBO = 0;     // OBVH SSBO ID
 	int mTriangleCount = 0;   // 三角形數量
 
 	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
@@ -64,17 +67,19 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\chair.gltf");
-		auto& triangles = mModel->getTriangles();
-		mTriangleCount = (int)triangles.size();
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
+		auto& Mesh = mModel->getMesh();
+		mTriangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
 		mComputeShader->createDebugSSBO(4);
-		auto obvhNodes = OBVH::buildOBVH(triangles);
+		auto obvhNodes = OBVH::buildOBVH(Mesh);
 		if (mTriangleCount > 0)
 		{
-			mComputeShader->createSSBO(mQBVHSSBO, (uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.data(), 1);
-			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 2);
+			mComputeShader->createSSBO(mOBVHSSBO, (uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.data(), 1);
+			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.data(), 2);
+			mComputeShader->createSSBO(mIndicesSSBO, (uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.data(), 3);
+			mComputeShader->createSSBO(mNormalsSSBO, (uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.data(), 4);
 
 		}
 

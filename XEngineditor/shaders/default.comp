@@ -11,16 +11,6 @@ struct QBVHNode {
     ivec4 info;     // z=start, w=count
 };
 
-struct Triangle {
-    vec4 p0;
-    vec4 p1;
-    vec4 p2;
-    vec4 n0;
-    vec4 n1;
-    vec4 n2;
-    vec4 normal;
-};
-
 struct Camera {
     vec3 position;
     vec3 lookat;
@@ -45,8 +35,16 @@ layout(std430, binding = 1) buffer QBVHNodeBuffer {
     QBVHNode qbvhNodes[];
 };
 
-layout(std430, binding = 2) buffer TriangleBuffer {
-    Triangle triangles[];
+layout(std430, binding = 2) buffer VerticesBuffer {
+    vec4 vertices[];
+};
+
+layout(std430, binding = 3) buffer IndicesBuffer {
+    ivec4 indices[];
+};
+
+layout(std430, binding = 4) buffer NormalsBuffer {
+    vec4 normals[];
 };
 
 uniform vec2 u_resolution; 
@@ -158,7 +156,7 @@ bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
 }
 
 bool hit_qbvh(Ray ray, inout HitRecord rec) {
-    int hitIdx = -1;
+    bool hit = false;
     vec3 tempColor = vec3(0.0);
     vec3 tempNormal = vec3(0.0);
 
@@ -179,27 +177,18 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                        childrenB.x < 0 && childrenB.y < 0 && childrenB.z < 0);
         if (isLeaf) {
             for (int i = start; i < start + count; i++) {
-                Triangle triangle = triangles[i];
-                vec3 p0 = triangle.p0.xyz;
-                vec3 p1 = triangle.p1.xyz;
-                vec3 p2 = triangle.p2.xyz;
-                vec3 n0 = triangle.n0.xyz;
-                vec3 n1 = triangle.n1.xyz;
-                vec3 n2 = triangle.n2.xyz;
+                
+                ivec4 index = indices[i];
+                vec3 p0 = vertices[index.x].xyz;
+                vec3 p1 = vertices[index.y].xyz;
+                vec3 p2 = vertices[index.z].xyz;
+                vec3 normal = normals[i].xyz;
 
                 float t = rayTriangleIntersect(ray, p0, p1, p2);
                 if (t > 0.0 && t < rec.t) {
-                    // 計算重心坐標
-                    vec3 hitPoint = ray.origin + t * ray.direction;
-                    vec3 barycentric = vec3(0.0);
-                    barycentric.x = length(cross(p1 - hitPoint, p2 - hitPoint)) / length(cross(p1 - p0, p2 - p0));
-                    barycentric.y = length(cross(p2 - hitPoint, p0 - hitPoint)) / length(cross(p1 - p0, p2 - p0));
-                    barycentric.z = 1.0 - barycentric.x - barycentric.y;
-
                     rec.t = t;
-                    hitIdx = i;
-
-                    tempNormal = normalize(barycentric.x * n0 + barycentric.y * n1 + barycentric.z * n2);
+                    hit = true;
+                    tempNormal = normal;
                     tempColor = vec3(1.0, 0.0, 0.0);
                 }
             }
@@ -213,7 +202,7 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
         }
     }
 
-    if (hitIdx >= 0) {
+    if (hit) {
         rec.pos = ray.origin + rec.t * ray.direction;
         rec.normal = tempNormal;
         rec.color = tempColor;

@@ -55,11 +55,15 @@ namespace XEngine::graphics
 		void draw();*/
 
 		inline std::vector<Triangle>& getTriangles() { return mTriangles; }
+		inline Mesh& getMesh() { return mMesh; }
 
 	private:
 		std::vector<Triangle> mTriangles;
+		Mesh mMesh;
 		void extractTriangles(tinygltf::Model& model);
 		void extractNodeTriangles(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
+		void extractMesh(tinygltf::Model& model);
+		void extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
 
 	private:
 		void bindMesh(std::map<int, GLuint>& vbos, tinygltf::Model& model, tinygltf::Mesh& mesh);

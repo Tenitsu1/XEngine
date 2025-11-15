@@ -15,6 +15,7 @@ namespace XEngine::Bounds {
 
         Bound3 Union(const glm::vec3& other);
         Bound3 Union(const Bound3& other);
+        Bound3 childOctant(int octant) const;
         glm::vec3 Diagonal() const;
         glm::vec3 Center() const;
         int octant(const glm::vec3& point) const;
@@ -34,4 +35,5 @@ namespace XEngine::Bounds {
 
     Bound3 Union(const Bound3& b, const glm::vec3& p);
     Bound3 Union(const Bound3& b1, const Bound3& b2);
+    bool Intersect(const Bound3& b1, const Bound3& b2);
 }
