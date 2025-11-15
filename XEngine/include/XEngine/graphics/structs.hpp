@@ -1,5 +1,6 @@
 #pragma once
 #include <external/glm/glm.hpp>
+#include <vector>
 
 struct Triangle
 {
@@ -19,6 +20,13 @@ struct Triangle
 	float padding6;     //offset 92  // alignment 4  // size 4  // total 96 bytes
 	glm::vec3 faceNormal; //offset 96  // alignment 16 // size 12 // total 108 bytes
 	float padding7;     //offset 108 // alignment 4  // size 4  // total 112 bytes
+};
+
+struct Mesh
+{
+	std::vector<glm::vec4> vertices;
+	std::vector<glm::vec4> normals;
+	std::vector<glm::ivec4> indices;
 };
 
 struct Camera

@@ -71,7 +71,8 @@ namespace XEngine::graphics
 		}
 
 		vaoAndEbos = bindModel(model);
-		extractTriangles(model);
+		// extractTriangles(model);
+		extractMesh(model);
 
 	}
 
@@ -489,6 +490,196 @@ namespace XEngine::graphics
 		}
 	}
 
+	void GLTFStaticMesh::extractMesh(tinygltf::Model& model)
+	{
+		mMesh.vertices.clear();
+		mMesh.normals.clear();
+		mMesh.indices.clear();
+		const tinygltf::Scene& scene = model.scenes[model.defaultScene > -1 ? model.defaultScene : 0];
+
+		// 從根節點開始，初始變換是單位矩陣
+		for (size_t i = 0; i < scene.nodes.size(); ++i) {
+			const tinygltf::Node& node = model.nodes[scene.nodes[i]];
+			extractNodeMesh(model, node, glm::mat4(1.0f));
+		}
+	}
+
+	void GLTFStaticMesh::extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform)
+	{
+		glm::mat4 worldTransform = parentTransform * GetLocalMatrix(node);
+		glm::mat3 normalTransform = glm::transpose(glm::inverse(glm::mat3(worldTransform)));
+
+		if (node.mesh > -1) {
+			const tinygltf::Mesh& mesh = model.meshes[node.mesh];
+			for (size_t p = 0; p < mesh.primitives.size(); ++p) {
+				const tinygltf::Primitive& primitive = mesh.primitives[p];
+				if (primitive.indices < 0 || primitive.attributes.find("POSITION") == primitive.attributes.end()) {
+					continue; // 跳過沒有索引或沒有頂點位置的 primitive
+				}
+
+				// --- 顶点位置数据 ---
+				const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
+				const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
+				const tinygltf::Buffer& indexBuffer = model.buffers[indexBufferView.buffer];
+				// 指標計算：同時考慮 bufferView 和 accessor 的 byteOffset
+				const uint8_t* indexBufferData = &indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset];
+
+				const tinygltf::Accessor& posAccessor = model.accessors.at(primitive.attributes.at("POSITION"));
+				const tinygltf::BufferView& posBufferView = model.bufferViews[posAccessor.bufferView];
+				const tinygltf::Buffer& posBuffer = model.buffers[posBufferView.buffer];
+				const uint8_t* posBufferStart = &posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset];
+				// 使用 byteStride 來正確地跳轉到下一個頂點
+				size_t posByteStride = posAccessor.ByteStride(posBufferView);
+
+				// --- 法线数据 ---
+				const uint8_t* normalBufferStart = nullptr;
+				size_t normalByteStride = 0;
+				const tinygltf::Accessor* normalAccessor = nullptr; // 使用指標以處理不存在的情況
+				if (primitive.attributes.count("NORMAL")) {
+					normalAccessor = &model.accessors.at(primitive.attributes.at("NORMAL"));
+					const tinygltf::BufferView& normalBufferView = model.bufferViews[normalAccessor->bufferView];
+					const tinygltf::Buffer& normalBuffer = model.buffers[normalBufferView.buffer];
+					normalBufferStart = &normalBuffer.data[normalBufferView.byteOffset + normalAccessor->byteOffset];
+					normalByteStride = normalAccessor->ByteStride(normalBufferView);
+				}
+
+				// --- 獲取頂點總數以進行邊界檢查 ---
+				const size_t vertexCount = posAccessor.count;
+
+				for (size_t j = 0; j < indexAccessor.count; j += 3) 
+				{
+					// 1. 在迴圈開始時進行初始化
+					unsigned int i0 = 0, i1 = 0, i2 = 0;
+					bool indices_valid = true; // 添加一個標誌來追蹤索引是否成功讀取
+
+					// 2. 讀取索引，並在不支援的類型時設置標誌
+					if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) 
+					{
+						const uint16_t* indices = reinterpret_cast<const uint16_t*>(&indexBufferData[j * sizeof(uint16_t)]);
+						i0 = indices[0];
+						i1 = indices[1];
+						i2 = indices[2];
+					}
+					else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) 
+					{
+						const uint32_t* indices = reinterpret_cast<const uint32_t*>(&indexBufferData[j * sizeof(uint32_t)]);
+						i0 = indices[0];
+						i1 = indices[1];
+						i2 = indices[2];
+					}
+					else 
+					{
+						// 如果索引類型不支援，設置標誌並準備跳過
+						XENGINE_WARN("Unsupported index component type: {}", indexAccessor.componentType);
+						indices_valid = false;
+					}
+
+					// 3. 檢查標誌，如果無效則跳過此三角形
+					if (!indices_valid) 
+					{
+						continue;
+					}
+
+					// --- 新增：邊界檢查 (現在 i0, i1, i2 肯定是初始化的) ---
+					if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+					{
+						XENGINE_WARN("Vertex index out of bounds! Index values: ({}, {}, {}), Vertex count: {}. Skipping triangle.", i0, i1, i2, vertexCount);
+						continue; // 跳過這個無效的三角形
+					}
+					// --- 更安全地讀取頂點和法線 ---
+					// 使用 byte-addressing，而不是假設它們是緊密排列的 float 陣列
+					const float* v0_ptr = reinterpret_cast<const float*>(posBufferStart + i0 * posByteStride);
+					const float* v1_ptr = reinterpret_cast<const float*>(posBufferStart + i1 * posByteStride);
+					const float* v2_ptr = reinterpret_cast<const float*>(posBufferStart + i2 * posByteStride);
+
+					glm::vec3 v0_local(v0_ptr[0], v0_ptr[1], v0_ptr[2]);
+					glm::vec3 v1_local(v1_ptr[0], v1_ptr[1], v1_ptr[2]);
+					glm::vec3 v2_local(v2_ptr[0], v2_ptr[1], v2_ptr[2]);
+
+					glm::vec3 n0_local(0.0f, 1.0f, 0.0f), n1_local(0.0f, 1.0f, 0.0f), n2_local(0.0f, 1.0f, 0.0f);
+					if (normalBufferStart && normalAccessor && i0 < normalAccessor->count && i1 < normalAccessor->count && i2 < normalAccessor->count) {
+						const float* n0_ptr = reinterpret_cast<const float*>(normalBufferStart + i0 * normalByteStride);
+						const float* n1_ptr = reinterpret_cast<const float*>(normalBufferStart + i1 * normalByteStride);
+						const float* n2_ptr = reinterpret_cast<const float*>(normalBufferStart + i2 * normalByteStride);
+						n0_local = glm::vec3(n0_ptr[0], n0_ptr[1], n0_ptr[2]);
+						n1_local = glm::vec3(n1_ptr[0], n1_ptr[1], n1_ptr[2]);
+						n2_local = glm::vec3(n2_ptr[0], n2_ptr[1], n2_ptr[2]);
+					}
+
+					// --- 变换到世界空间 ---
+					glm::vec3 v0_world = worldTransform * glm::vec4(v0_local, 1.0f);
+					glm::vec3 v1_world = worldTransform * glm::vec4(v1_local, 1.0f);
+					glm::vec3 v2_world = worldTransform * glm::vec4(v2_local, 1.0f);
+
+					glm::vec3 n0_world = glm::normalize(normalTransform * n0_local);
+					glm::vec3 n1_world = glm::normalize(normalTransform * n1_local);
+					glm::vec3 n2_world = glm::normalize(normalTransform * n2_local);
+
+					// --- 更新包围盒 ---
+					m_boundsMin = glm::min(m_boundsMin, v0_world);
+					m_boundsMin = glm::min(m_boundsMin, v1_world);
+					m_boundsMin = glm::min(m_boundsMin, v2_world);
+					m_boundsMax = glm::max(m_boundsMax, v0_world);
+					m_boundsMax = glm::max(m_boundsMax, v1_world);
+					m_boundsMax = glm::max(m_boundsMax, v2_world);
+
+					// --- 存入 mMesh ---
+					glm::vec4 v0_local_v4(v0_local, 1.0f);
+					glm::vec4 v1_local_v4(v1_local, 1.0f);
+					glm::vec4 v2_local_v4(v2_local, 1.0f);
+					glm::ivec4 indice(-1, -1, -1, -1);
+					for (int i = 0; i < mMesh.vertices.size(); i++) {
+						if (mMesh.vertices[i] == v0_local_v4) {
+							indice.x = i;
+						}
+						if (mMesh.vertices[i] == v1_local_v4) {
+							indice.y = i;
+						}
+						if (mMesh.vertices[i] == v2_local_v4) {
+							indice.z = i;
+						}
+						if (indice.x != -1 && indice.y != -1 && indice.z != -1) {
+							break; // 提前退出循環以提高效率
+						}
+					}
+					for (int i = 0; i < 3; i++) {
+						if (indice[i] == -1) {
+							indice[i] = static_cast<int>(mMesh.vertices.size());
+							if (i == 0) mMesh.vertices.push_back(v0_local_v4);
+							if (i == 1) mMesh.vertices.push_back(v1_local_v4);
+							if (i == 2) mMesh.vertices.push_back(v2_local_v4);
+						}
+					}
+					mMesh.indices.push_back(indice);
+					glm::vec3 normal = glm::normalize(glm::cross(v1_local - v0_local, v2_local - v0_local));
+					mMesh.normals.push_back(glm::vec4(normal, 0.0f));
+				}
+			}
+		}
+
+	/*	XENGINE_TRACE("=========================================");
+		XENGINE_TRACE("CPU-Side Triangle Data Verification:");
+		XENGINE_TRACE("Total triangles extracted: {}", mTriangles.size());
+		if (mTriangles.size() > 0) {
+			for (int i = 0; i < 100; i++)
+			{
+				XENGINE_TRACE("--- The {}-th Triangle ---", i);
+				XENGINE_TRACE("v1: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].v1.x, mTriangles[i].v1.y, mTriangles[i].v1.z);
+				XENGINE_TRACE("v2: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].v2.x, mTriangles[i].v2.y, mTriangles[i].v2.z);
+				XENGINE_TRACE("v3: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].v3.x, mTriangles[i].v3.y, mTriangles[i].v3.z);
+				XENGINE_INFO("--- The {}-th Triangle of Normal ---", i);
+				XENGINE_INFO("v1: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].NA.x, mTriangles[i].NA.y, mTriangles[i].NA.z);
+				XENGINE_INFO("v2: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].NB.x, mTriangles[i].NB.y, mTriangles[i].NB.z);
+				XENGINE_INFO("v3: ({:.2f}, {:.2f}, {:.2f})", mTriangles[i].NC.x, mTriangles[i].NC.y, mTriangles[i].NC.z);
+			}
+		}		
+		XENGINE_TRACE("=========================================");*/
+
+		// 遞迴處理子節點
+		for (size_t i = 0; i < node.children.size(); ++i) {
+			extractNodeMesh(model, model.nodes[node.children[i]], worldTransform);
+		}
+	}
 
 }
 

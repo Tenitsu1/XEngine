@@ -80,6 +80,35 @@ namespace XEngine::Bounds {
         return Bound3(newMin, newMax);
     }
 
+    Bound3 Bound3::childOctant(int octant) const {
+        glm::vec3 center = Center();
+        glm::vec3 newMin = min;
+        glm::vec3 newMax = max;
+
+        if (octant & 1) {
+            newMin.x = center.x;
+        }
+        else {
+            newMax.x = center.x;
+        }
+
+        if (octant & 2) {
+            newMin.y = center.y;
+        }
+        else {
+            newMax.y = center.y;
+        }
+
+        if (octant & 4) {
+            newMin.z = center.z;
+        }
+        else {
+            newMax.z = center.z;
+        }
+
+        return Bound3(newMin, newMax);
+    }
+
     // --- 快取機制 ---
     void Bound3::updateCache() const {
         if (!cacheInit || min != lastMin || max != lastMax) {
@@ -89,5 +118,12 @@ namespace XEngine::Bounds {
             lastMax = max;
             cacheInit = true;
         }
+    }
+
+    bool Intersect(const Bound3& b1, const Bound3& b2) {
+        if (b1.max.x < b2.min.x || b1.min.x > b2.max.x) return false;
+        if (b1.max.y < b2.min.y || b1.min.y > b2.max.y) return false;
+        if (b1.max.z < b2.min.z || b1.min.z > b2.max.z) return false;
+        return true;
     }
 }
