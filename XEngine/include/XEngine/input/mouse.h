@@ -15,6 +15,9 @@ namespace XEngine::input
 		inline static float dX() { return x - xLast; }
 		inline static float dY() { return y - yLast; }
 
+		inline static float mouseWheelX() { return mouseWheelx; }
+		inline static float mouseWheelY() { return mouseWheely; }
+
 		static bool button(int button);
 		static bool buttonDown(int button);
 		static bool buttonUp(int button);
@@ -25,12 +28,14 @@ namespace XEngine::input
 		static float x, xLast;
 		static float y, yLast;
 
+		static float mouseWheelx;
+		static float mouseWheely;
+
 		static std::array<bool, buttonCount> buttons;
 		static std::array<bool, buttonCount> buttonsLast;
 	};
 
 }
-
 enum 
 {
 	XENGINE_INPUT_MOUSE_FIRST = 1,

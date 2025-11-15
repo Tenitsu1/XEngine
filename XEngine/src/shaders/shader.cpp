@@ -129,31 +129,26 @@ namespace XEngine
 
 	void Shader::setUniformInt(const std::string& name, int val)
 	{
-		glUseProgram(mProgramId);
 		glUniform1i(static_cast<GLint>(getUniformLoctaion(name)), val);
 	}
 
 	void Shader::setUniformFloat1(const std::string& name, float val1)
 	{
-		glUseProgram(mProgramId);
 		glUniform1f(static_cast<GLint>(getUniformLoctaion(name)), val1);
 	}
 
 	void Shader::setUniformFloat2(const std::string& name, float val1, float val2)
 	{
-		glUseProgram(mProgramId);
 		glUniform2f(static_cast<GLint>(getUniformLoctaion(name)), val1, val2);
 	}
 
 	void Shader::setUniformFloat3(const std::string& name, float val1, float val2, float val3)
 	{
-		glUseProgram(mProgramId);
 		glUniform3f(static_cast<GLint>(getUniformLoctaion(name)), val1, val2, val3);
 	}
 
 	void Shader::setUniformFloat4(const std::string& name, float val1, float val2, float val3, float val4)
 	{
-		glUseProgram(mProgramId);
 		glUniform4f(static_cast<GLint>(getUniformLoctaion(name)), val1, val2, val3, val4);
 	}
 
@@ -174,13 +169,11 @@ namespace XEngine
 
 	void Shader::setUniformMat3(const std::string& name, const glm::mat3& mat)
 	{
-		glUseProgram(mProgramId);
 		glUniformMatrix3fv(getUniformLoctaion(name), 1, GL_FALSE, glm::value_ptr(mat));
 	}
 
 	void Shader::setUniformMat4(const std::string& name, const glm::mat4& mat)
 	{
-		glUseProgram(mProgramId);
 		glUniformMatrix4fv(getUniformLoctaion(name), 1, GL_FALSE, glm::value_ptr(mat));
 	}
 

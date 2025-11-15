@@ -118,8 +118,6 @@ namespace XEngine::core
 
 	void Window::endRender()
 	{
-		
-
 		mImguiwindow.beginRender();
 		Engine::Instance().getApp().imguiRender();
 		mImguiwindow.endRender();
@@ -131,6 +129,11 @@ namespace XEngine::core
 		int w, h;
 		SDL_GetWindowSize(mWindow, &w, &h);
 		return glm::ivec2(w, h);
+	}
+
+	uint64_t Window::getDeltaTime()
+	{
+		return SDL_GetPerformanceCounter();
 	}
 
 	void Window::checkSDLVersion()

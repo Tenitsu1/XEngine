@@ -1,10 +1,11 @@
 ﻿#include "XEngine/engine.h"
 #include "XEngine/app.h"
-
 #include "XEngine/log.h"
+
 
 #include "XEngine/shaders/computeShader.h"
 #include "XEngine/shaders/shader.h"
+
 #include "XEngine/graphics/gltfLoader.h"
 #include "XEngine/graphics/structs.hpp"
 
@@ -32,16 +33,20 @@ private:
 	GLuint mQBVHSSBO = 0;     // QBVH SSBO ID
 	int mTriangleCount = 0;   // 三角形數量
 
-
+	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
+	uint64_t laseTime = 0;
+	float deltaTime = 0;
 
 	float light = 1000.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
 	float zkeyOffset = 5.f;
-	float keySpeed = 0.005f;
+	float keySpeed = 0.05f;
 	float size = 0.5f;
 	int samples_per_pixel = 1;
 	Camera camera;
+	float lastX = 640, lastY = 450;
+	bool firstMouse = true;
 
 public:
 
@@ -59,7 +64,7 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\Cube.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\chair.gltf");
 		auto& triangles = mModel->getTriangles();
 		mTriangleCount = (int)triangles.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
@@ -72,7 +77,6 @@ public:
 			mComputeShader->createSSBO(mTriangleSSBO, (uint32_t)triangles.size() * sizeof(Triangle), triangles.data(), 2);
 
 		}
-
 
 
 		// --- 新增：印出包圍盒日誌 ---
@@ -90,6 +94,12 @@ public:
 		XENGINE_TRACE("=========================================");
 
 
+		// Camera Setup
+		camera.position = glm::vec3(-5.0, 0.0, 0.0);
+		camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
+		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
+		camera.fov = 45.0f;
+
 	}
 	void shutdown() override
 	{
@@ -98,42 +108,88 @@ public:
 	void update() override
 	{
 		auto windowSize = Engine::Instance().getWindow().getWindowSize();
+
+		// Calculate the delta time
+		laseTime = nowTime;
+		nowTime = Engine::Instance().getWindow().getDeltaTime();
+		deltaTime = (float)((nowTime - laseTime) * 1000 / (float)Engine::Instance().getWindow().getDeltaTime());
 		
 
-		float xNorm = input::Mouse::X() / (float)windowSize.x;
-		float yNorm = input::Mouse::Y() / (float)windowSize.y;
+		// Camera Updata
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) { camera.position -= keySpeed * camera.lookat; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) { camera.position += keySpeed * camera.lookat; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) { camera.position -= glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) { camera.position += glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed; }
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed; }
 
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) { ykeyOffset += keySpeed; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) { ykeyOffset -= keySpeed; }
+		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * deltaTime; }
+		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * deltaTime; }
+		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_UP)) { zkeyOffset -= keySpeed * deltaTime; }
+		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_DOWN)) { zkeyOffset += keySpeed * deltaTime; }
+		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTime; }
+		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTime; }
 
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed * 50; }
-		if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed * 50; }
+		// Mouse and keyborad input 
+		//float xNorm = input::Mouse::X() / (float)windowSize.x;
+		//float yNorm = input::Mouse::Y() / (float)windowSize.y;
+		float xNorm = input::Mouse::X();
+		float yNorm = input::Mouse::Y();
+		if (firstMouse)
+		{
+			camera.pitch = 0.0f;
+			lastX = xNorm;
+			lastY = yNorm;
+			firstMouse = false;
+		}
 
-		camera.position = glm::vec3(xkeyOffset, ykeyOffset, zkeyOffset);
-		camera.lookat = camera.position + glm::vec3(0.0f, 0.0f, -1.0f);
-		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
-		camera.fov = 45.0f;
-		
-		float aspect = (float)windowSize.x / (float)windowSize.y;
+		xkeyOffset = xNorm - lastX;
+		ykeyOffset = lastY - yNorm;
+		lastX = xNorm;
+		lastY = yNorm;
+		float sensitivity = 0.05f;
+		xkeyOffset *= sensitivity;
+		ykeyOffset *= sensitivity;
+
+		camera.yaw += xkeyOffset;
+		camera.pitch += ykeyOffset;
+
+		if (camera.pitch > 89.0f)
+			camera.pitch = 89.0f;
+		if (camera.pitch < -89.0f)
+			camera.pitch = -89.0f;
+
+		glm::vec3 front;
+		front.x = cos(glm::radians(camera.pitch)) * cos(glm::radians(camera.yaw));
+		front.y = sin(glm::radians(camera.pitch));
+		front.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));
+		camera.lookat = glm::normalize(front);
+
+		camera.direction.x = cos(glm::radians(camera.pitch)) * cos(glm::radians(camera.yaw)); 
+		camera.direction.y = sin(glm::radians(camera.pitch));
+		camera.direction.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));
+
 		float fov = glm::radians(camera.fov);
-		glm::mat4 view = glm::lookAt(camera.position, camera.lookat, camera.up);
+		float aspect = (float)windowSize.x / (float)windowSize.y;
+		glm::mat4 view = glm::lookAt(camera.position, camera.position+camera.lookat, camera.up);
 		// 近裁剪面（zNear = 0.1f）和遠裁剪面（zFar = 100.0f）
 		glm::mat4 projection = glm::perspective(fov, aspect, 0.1f, 100.0f);
 		glm::mat4 invViewProj = glm::inverse(projection * view);
 
+
+		// Compute Shader setup
+		mComputeShader->bind();
 		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
 		mComputeShader->setUniformCamera("camera", camera);
 		mComputeShader->setUniformMat4("invViewProj", invViewProj);
 		mComputeShader->setUniformInt("max_depth", 5);
 		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
+		
 	}
 
 	void render() override
 	{
 		mComputeShader->DispatchCompute();
-		
 	}
 
 	void imguiRender() override
@@ -146,9 +202,9 @@ public:
 
 		if (ImGui::Begin("Test1"))
 		{
-			ImGui::DragFloat("PositionX", &xkeyOffset, 0.01f);
-			ImGui::DragFloat("PositionY", &ykeyOffset, 0.01f);
-			ImGui::DragFloat("PositionZ", &zkeyOffset, 0.01f);
+			ImGui::DragFloat("LookAtX", &camera.lookat.x, 0.01f);
+			ImGui::DragFloat("LookAtY", &camera.lookat.y, 0.01f);
+			ImGui::DragFloat("LookAtZ", &camera.lookat.z, 0.01f);
 		}
 		ImGui::End();
 
@@ -160,11 +216,19 @@ public:
 		}
 		ImGui::End();
 
+		if (ImGui::Begin("Test3"))
+		{
+			ImGui::DragFloat("CamearX", &camera.position.x, 0.01f);
+			ImGui::DragFloat("CamearY", &camera.position.y, 0.01f);
+			ImGui::DragFloat("CamearZ", &camera.position.z, 0.01f);
+		}
+		ImGui::End();
+
 		if (ImGui::Begin("Metrics/Debugger"))
 		{
 			ImGuiIO& io = ImGui::GetIO();
 			ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-			ImGui::Text("%d vertices,\n%d indices (%d triangles)", io.MetricsRenderVertices, io.MetricsRenderIndices, io.MetricsRenderIndices / 3);
+			ImGui::Text("%d vertices,\n%d indices (%d triangles)", io.MetricsRenderVertices, io.MetricsRenderIndices, mTriangleCount);
 		}
 		ImGui::End();
 

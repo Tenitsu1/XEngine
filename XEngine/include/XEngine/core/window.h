@@ -45,10 +45,10 @@ namespace XEngine::core
 
 		static void checkSDLVersion();
 		glm::ivec2 getWindowSize();
+		uint64_t getDeltaTime();
 
 		inline SDL_Window* getSDLWindow() { return mWindow; }
 		inline SDL_GLContext getGLContext() { return mGLContext; }
-		inline graphics::Framebuffer* getFramebuffer() { return mFramebuffer.get(); }
 
 		void beginRender();
 		void endRender();
@@ -57,6 +57,5 @@ namespace XEngine::core
 		SDL_Window* mWindow;
 		SDL_GLContext mGLContext;
 		ImguiWindow mImguiwindow;
-		std::shared_ptr<graphics::Framebuffer> mFramebuffer;
 	};
 }

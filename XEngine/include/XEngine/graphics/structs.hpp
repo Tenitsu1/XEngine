@@ -1,5 +1,6 @@
 #pragma once
 #include <external/glm/glm.hpp>
+#include <external/glm/gtc/matrix_transform.hpp>
 
 struct Triangle
 {
@@ -26,5 +27,21 @@ struct Camera
 	glm::vec3 position;
 	glm::vec3 lookat;
 	glm::vec3 up;
+
+	glm::vec3 direction = glm::normalize(position - lookat);
+	glm::vec3 right = glm::normalize(glm::cross(up, direction));
+	glm::vec3 cameraUp = glm::cross(direction, right);
+
+	glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f),
+		glm::vec3(0.0f, 0.0f, 0.0f),
+		glm::vec3(0.0f, 1.0f, 0.0f));
+
 	float fov;
+	float yaw   = 0.0f;
+	float pitch = 0.0f;
+	// camera options
+	float MovementSpeed;
+	float MouseSensitivity;
+	float Zoom;
+
 };

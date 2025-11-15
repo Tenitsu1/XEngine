@@ -3,13 +3,17 @@
 
 #include <algorithm>
 #include "SDL3/SDL_mouse.h"
+#include "SDL3/SDL_events.h"
 
 namespace XEngine::input
 {
+	SDL_Event event;
 	float Mouse::x = 0;
 	float Mouse::xLast = 0;
 	float Mouse::y = 0;
 	float Mouse::yLast = 0;
+	float Mouse::mouseWheelx = 0;
+	float Mouse::mouseWheely = 0;
 
 	std::array<bool, Mouse::buttonCount> Mouse::buttons;
 	std::array<bool, Mouse::buttonCount> Mouse::buttonsLast;
@@ -22,7 +26,6 @@ namespace XEngine::input
 
 	void Mouse::update()
 	{
-
 		xLast = x;
 		yLast = y;
 		buttonsLast = buttons; 
