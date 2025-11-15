@@ -25,9 +25,10 @@ struct Triangle
 
 struct Mesh
 {
-	std::vector<glm::vec4> vertices;
-	std::vector<glm::vec4> normals;
+	std::vector<glm::vec4>  vertices;
+	std::vector<glm::vec4>  normals;
 	std::vector<glm::ivec4> indices;
+	std::vector<glm::vec2>  texCoords;
 };
 
 struct Camera

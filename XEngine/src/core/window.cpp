@@ -122,6 +122,7 @@ namespace XEngine::core
 		Engine::Instance().getApp().imguiRender();
 		mImguiwindow.endRender();
 		SDL_GL_SwapWindow(mWindow);
+		SDL_SetWindowRelativeMouseMode(mWindow,true);
 	}
 
 	glm::ivec2 Window::getWindowSize()

@@ -56,6 +56,7 @@ namespace XEngine::graphics
 
 		inline std::vector<Triangle>& getTriangles() { return mTriangles; }
 		inline Mesh& getMesh() { return mMesh; }
+		inline const std::vector<GLuint>& getTextures() const { return mTextures; }
 
 	private:
 		std::vector<Triangle> mTriangles;
@@ -72,8 +73,11 @@ namespace XEngine::graphics
 		void drawMesh(const std::map<int, GLuint>& vbos, tinygltf::Model& model, tinygltf::Mesh& mesh);
 		void drawModelNodes(const std::pair<GLuint, std::map<int, GLuint>>& VAO_and_EBOs, tinygltf::Model& model, tinygltf::Node& node);
 
+		void loadTextures(tinygltf::Model& model);
+
 	private:
 		std::pair<GLuint, std::map<int, GLuint>> vaoAndEbos;
+		std::vector<GLuint> mTextures;
 		std::weak_ptr<Shader> mShader;
 		/*void bindModelNodes(std::map<int, unsigned int>& mEbos, tinygltf::Node& node);
 		void bindMesh(std::map<int, unsigned int>& mEbos, tinygltf::Mesh& mesh);
