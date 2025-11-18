@@ -68,11 +68,27 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\TexCube2.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\chair.gltf");
 		auto& Mesh = mModel->getMesh();
 		mTriangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
+		mShader->createTexture(getWindowProperties().width, getWindowProperties().height);
+		mShader->setFBO();
+		mShader->setVAO();
+		mShader->setVBO();
+		float quadVertices[] = {
+			// positions   // texCoords
+			-1.0f, -1.0f,  0.0f, 0.0f,
+			1.0f, -1.0f,  1.0f, 0.0f,
+			1.0f,  1.0f,  1.0f, 1.0f,
+			-1.0f,  1.0f,  0.0f, 1.0f
+		};
+		unsigned int quadIndices[] = { 0, 1, 2, 0, 2, 3 };
+		mShader->setEBO(quadIndices, sizeof(quadIndices));
+		mShader->bind(quadVertices, 4, 4);
+
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
+		mShader->bindTexture(mComputeShader->getTexture(), 0);
 		mComputeShader->createDebugSSBO(7);
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
 		if (mTriangleCount > 0)
@@ -134,7 +150,7 @@ public:
 		nowTime = Engine::Instance().getWindow().getDeltaTime();
 		deltaTime = (float)((nowTime - laseTime) * 1000 / (float)Engine::Instance().getWindow().getDeltaTime());
 
-		float deltaTimeMax = deltaTime * 10000;
+		float deltaTimeMax = deltaTime * 100000;
 		
 
 		// Camera Updata
@@ -230,6 +246,7 @@ public:
 	void render() override
 	{
 		mComputeShader->DispatchCompute();
+		mShader->draw(getWindowProperties().width, getWindowProperties().height);
 	}
 
 	void imguiRender() override
@@ -282,7 +299,8 @@ public:
 			auto& window = Engine::Instance().getWindow();
 
 			ImGui::Image(
-					(void*)(intptr_t)mComputeShader->getTexture(),
+					(void*)(intptr_t)mShader->getTexture(),
+					// (void*)(uintptr_t)mComputeShader->getTexture(),
 					{1280, 720 },
 					ImVec2(0, 1),
 					ImVec2(1, 0));

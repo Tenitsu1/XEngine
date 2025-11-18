@@ -117,14 +117,60 @@ namespace XEngine
 		glDeleteProgram(mProgramId);
 	}
 
-	void Shader::bind()
+	void Shader::bind(const float* vertexArray, uint32_t vertexCount, uint32_t dimensions) 
 	{
-		glUseProgram(mProgramId);
+		glBufferData(GL_ARRAY_BUFFER, vertexCount * dimensions * sizeof(float), vertexArray, GL_STATIC_DRAW);
+		glVertexAttribPointer(0, dimensions, GL_FLOAT, GL_FALSE, dimensions * sizeof(float), 0); 
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+		glEnableVertexAttribArray(1);
 	}
 
 	void Shader::unbind()
 	{
 		glUseProgram(0);
+	}
+
+	void Shader::draw(int width, int height)
+	{
+		glUseProgram(mProgramId);
+
+		// 綁定 FBO，讓 fragment shader 輸出到 mTexture
+		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+		glViewport(0, 0, width, height);
+
+		glBindVertexArray(VAO);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+		// 解綁 FBO，回到預設 framebuffer
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+	void Shader::setVAO()
+	{
+		glGenVertexArrays(1, &VAO);
+		glBindVertexArray(VAO);
+	}
+
+	void Shader::setVBO()
+	{
+		glGenBuffers(1, &VBO);
+		glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	}
+
+	void Shader::setEBO(const void* data, size_t size)
+	{
+		glGenBuffers(1, &EBO);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, size, data, GL_STATIC_DRAW);
+	}
+
+	void Shader::setFBO()
+	{
+		glGenFramebuffers(1, &FBO);
+		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTexture, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void Shader::setUniformInt(const std::string& name, int val)
@@ -189,4 +235,19 @@ namespace XEngine
 		return mUniformLocations[name];
 	}
 
+	void Shader::bindTexture(uint32_t textureID, uint32_t textureUnit)
+	{
+		glActiveTexture(GL_TEXTURE0 + textureUnit);
+		glBindTexture(GL_TEXTURE_2D, textureID);
+		glUniform1i(glGetUniformLocation(mProgramId, "screenTexture"), textureUnit);
+	}
+
+	void Shader::createTexture(int width, int height)
+	{
+		glGenTextures(1, &mTexture);
+		glBindTexture(GL_TEXTURE_2D, mTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
 }

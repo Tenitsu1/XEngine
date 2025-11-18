@@ -3,7 +3,7 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(rgba32f, binding = 0) uniform writeonly image2D screenTexture;
 
 // SSBO 相關定義 (保持不變)
-struct QBVHNode {
+struct OBVHNode {
     vec4 aabbMin;
     vec4 aabbMax;
     ivec4 childrenA; // 最多4個子節點索引，-1表示無
@@ -37,8 +37,8 @@ struct HitRecord {
     float t;
 };
 
-layout(std430, binding = 1) buffer QBVHNodeBuffer {
-    QBVHNode qbvhNodes[];
+layout(std430, binding = 1) buffer OBVHNodeBuffer {
+    OBVHNode obvhNodes[];
 };
 
 layout(std430, binding = 2) buffer VerticesBuffer {
@@ -204,7 +204,7 @@ bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
     return tmax >= max(tmin, 0.0) && tmin < tMax;
 }
 
-bool hit_qbvh(Ray ray, inout HitRecord rec) {
+bool hit_obvh(Ray ray, inout HitRecord rec) {
     bool hit = false;
     vec3 tempColor = vec3(0.0);
     vec3 tempNormal = vec3(0.0);
@@ -216,7 +216,7 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
 
     while (stackPtr > 0) {
         int nodeIdx = stack[--stackPtr];
-        QBVHNode node = qbvhNodes[nodeIdx];
+        OBVHNode node = obvhNodes[nodeIdx];
         if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, rec.t)) continue;
 
         ivec4 childrenA = node.childrenA;
@@ -233,7 +233,8 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                 vec3 p1 = vertices[index.y].xyz;
                 vec3 p2 = vertices[index.z].xyz;
                 // int material = GLASS;
-                int material = index.w;
+                int material = DIFFUSE;
+                // int material = index.w;
                 vec3 normal = normals[i].xyz;
 
                 vec3 intersection = rayTriangleIntersect(ray, p0, p1, p2);
@@ -245,12 +246,12 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                     rec.t = t;
                     hit = true;
 
-                    // [修改] 內插法線以獲得平滑著色
-                    vec3 n0 = normals[index.x].xyz;
-                    vec3 n1 = normals[index.y].xyz;
-                    vec3 n2 = normals[index.z].xyz;
+                    // // [修改] 內插法線以獲得平滑著色
+                    // vec3 n0 = normals[index.x].xyz;
+                    // vec3 n1 = normals[index.y].xyz;
+                    // vec3 n2 = normals[index.z].xyz;
                     // 使用重心座標 (1-u-v, u, v) 進行內插
-                    tempNormal = normalize((1.0 - u - v) * n0 + u * n1 + v * n2);
+                    tempNormal = normal;
 
                     // [修改] 內插 UV 座標並從紋理採樣
                     vec2 uv0 = texCoords[index.x];
@@ -259,7 +260,9 @@ bool hit_qbvh(Ray ray, inout HitRecord rec) {
                     vec2 hitUV = (1.0 - u - v) * uv0 + u * uv1 + v * uv2;
                     
                     // 從紋理採樣顏色
-                    tempColor = texture(u_texture, hitUV).rgb;
+                    // tempColor = texture(u_texture, hitUV).rgb;
+                    vec3 GREEN = vec3(0.0, 1.0, 0.0);
+                    tempColor = GREEN;
                     tempMaterial = getMaterial(material);
                 }
             }
@@ -292,7 +295,7 @@ bool hit_world(Ray ray, out HitRecord rec) {
 
     HitRecord triRec;
     triRec.t = rec.t;
-    if (hit_qbvh(ray, triRec)) {
+    if (hit_obvh(ray, triRec)) {
         if (triRec.t < rec.t) {
             rec.t = triRec.t;
             hitSomething = true;
@@ -324,7 +327,7 @@ vec3 getRayDir(vec2 pixel)
     return normalize(eye.xyz - camera.position);
 }
 // ----------------------------------------------------
-
+const int SAMPLES_PER_PIXEL = 16;
 void main()
 {
     // 取得像素座標
@@ -332,38 +335,42 @@ void main()
     // 邊界檢查
     if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
     
-    vec3 color;
+    vec3 color = vec3(0.0);
     
-    Ray ray;
-    ray.origin = camera.position;
-    ray.direction = getRayDir(pixel);
+    for (int s = 0; s < SAMPLES_PER_PIXEL; ++s) {
+        // 隨機偏移像素座標
+        vec2 jitter = random_vec2(pixel + float(s)) - 0.5;
+        vec2 samplePixel = pixel + jitter;
 
-    vec3 attenuation = WHITE;
-    for (int depth = 0; depth < max_depth; depth++) {
-        HitRecord rec;
-        if (!hit_world(ray, rec)) break;
+        Ray ray;
+        ray.origin = camera.position;
+        ray.direction = getRayDir(samplePixel);
 
-        if (rec.material.type == LIGHT) {
-            // 命中光源直接結束
-            float lightAttenuation = calculateAttenuation(rec.t);
-            color = attenuation * rec.color * lightAttenuation;
-            break;
-        } else if (rec.material.type == GLASS) {
-            // 玻璃材質折射
-            float ior = rec.material.ior;
-            float eta = dot(ray.direction, rec.normal) < 0.0 ? (1.0 / ior) : ior;
-            ray.direction = refract(ray.direction, rec.normal, eta);
-            attenuation *= max(vec3(0.8), rec.color) * 0.98;
-        } else {
-            // 漫反射材質
-            vec3 hemiDir = random_in_hemisphere(rec.normal, rec.pos.xy + float(depth));
-            ray.direction = normalize(mix(rec.normal, hemiDir, rec.material.roughness));
-            attenuation *= rec.color * 0.8;
+        vec3 attenuation = WHITE;
+        for (int depth = 0; depth < max_depth; depth++) {
+            HitRecord rec;
+            if (!hit_world(ray, rec)) break;
+
+            if (rec.material.type == LIGHT) {
+                float lightAttenuation = calculateAttenuation(rec.t);
+                color += attenuation * rec.color * lightAttenuation;
+                break;
+            } else if (rec.material.type == GLASS) {
+                float ior = rec.material.ior;
+                float eta = dot(ray.direction, rec.normal) < 0.0 ? (1.0 / ior) : ior;
+                ray.direction = refract(ray.direction, rec.normal, eta);
+                attenuation *= max(vec3(0.8), rec.color) * 0.98;
+            } else {
+                vec3 hemiDir = random_in_hemisphere(rec.normal, rec.pos.xy + float(depth) + float(s));
+                ray.direction = normalize(mix(rec.normal, hemiDir, rec.material.roughness));
+                attenuation *= rec.color * 0.8;
+            }
         }
+        float a = 0.5 * (ray.direction.y + 1.0);
+        vec3 BLUE = vec3(0.5, 0.7, 1.0);
+        vec3 sky = mix(WHITE, BLUE, a);
+        color += attenuation * sky;
     }
-    float a = 0.5 * (ray.direction.y + 1.0);
-    vec3 BLUE = vec3(0.5, 0.7, 1.0);
-    vec3 sky = mix(WHITE, BLUE, a);
-    color = attenuation * sky;
+    color /= float(SAMPLES_PER_PIXEL); // 平均多重採樣結果
     imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
 }
