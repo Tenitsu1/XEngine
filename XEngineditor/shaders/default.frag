@@ -27,19 +27,77 @@ float luminance(vec3 color) {
 	return dot(color, vec3(0.299, 0.587, 0.114));
 }
 
-PixelColor getPixelColors(vec2 texCoords, vec2 texelSize) {
+vec3 gaussianBlur5x5(vec2 texelSize) {
+    float kernel[25] = float[](
+        1,  4,  7,  4, 1,
+        4, 16, 26, 16, 4,
+        7, 26, 41, 26, 7,
+        4, 16, 26, 16, 4,
+        1,  4,  7,  4, 1
+    );
+    float weight = 0.0;
+    vec3 sum = vec3(0.0);
+    int idx = 0;
+    for (int y = -2; y <= 2; ++y)
+        for (int x = -2; x <= 2; ++x) {
+            float k = kernel[idx];
+            sum += texture(screenTexture, TexCoords + vec2(x, y) * texelSize).rgb * k;
+            weight += k;
+            idx++;
+        }
+    return sum / weight;
+}
+
+float laplacianEdge(vec2 texelSize) {
+    float kernel[9] = float[](
+        0,  1, 0,
+        1, -4, 1,
+        0,  1, 0
+    );
+    float sum = 0.0;
+    int idx = 0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            float luma = luminance(texture(screenTexture, TexCoords + vec2(x, y) * texelSize).rgb);
+            sum += kernel[idx++] * luma;
+        }
+    return abs(sum);
+}
+
+vec3 bilateralFilter(vec2 texelSize, float sigma_s, float sigma_r) {
+    vec3 center = texture(screenTexture, TexCoords).rgb;
+    float weightSum = 0.0;
+    vec3 result = vec3(0.0);
+
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            vec2 offset = vec2(x, y) * texelSize;
+            vec3 samp = texture(screenTexture, TexCoords + offset).rgb;
+
+            float spatial = exp(-dot(offset, offset) / (2.0 * sigma_s * sigma_s));
+            float range = exp(-dot(samp - center, samp - center) / (2.0 * sigma_r * sigma_r));
+            float weight = spatial * range;
+
+            result += samp * weight;
+            weightSum += weight;
+        }
+    }
+    return result / weightSum;
+}
+
+PixelColor getPixelColors(vec2 texelSize) {
 	// 獲取當前像素和周圍像素的顏色
 	PixelColor pc;
 	vec2 MAX = vec2(1.0);
 	vec2 MIN = vec2(0.0);
 	vec2 north, south, east, west;
 
-	north = clamp(texCoords + vec2(0.0, texelSize.y), MIN, MAX);
-	south = clamp(texCoords + vec2(0.0, -texelSize.y), MIN, MAX);
-	east = clamp(texCoords + vec2(texelSize.x, 0.0), MIN, MAX);
-	west = clamp(texCoords + vec2(-texelSize.x, 0.0), MIN, MAX);
+	north = clamp(TexCoords + vec2(0.0, texelSize.y), MIN, MAX);
+	south = clamp(TexCoords + vec2(0.0, -texelSize.y), MIN, MAX);
+	east = clamp(TexCoords + vec2(texelSize.x, 0.0), MIN, MAX);
+	west = clamp(TexCoords + vec2(-texelSize.x, 0.0), MIN, MAX);
 
-	pc.color = texture(screenTexture, texCoords).rgb;
+	pc.color = texture(screenTexture, TexCoords).rgb;
 	pc.north = texture(screenTexture, north).rgb;
 	pc.south = texture(screenTexture, south).rgb;
 	pc.east = texture(screenTexture, east).rgb;
@@ -75,11 +133,30 @@ vec3 getFinalColor(PixelColor pc, PixelLuminance pl) {
 void main() {
     vec2 texelSize = 1.0 / u_resolution; // 紋理像素大小
 
-    PixelColor pc = getPixelColors(TexCoords, texelSize);
-    PixelLuminance pl = getPixelLuminance(pc);
+    // 直接顯示
+    // vec3 color = texture(screenTexture, TexCoords).rgb;
 
-    // 根據邊緣檢測結果決定最終顏色
-    vec3 color = getFinalColor(pc, pl);
+    // 高斯模糊
+    // vec3 color = gaussianBlur5x5(texelSize);
+
+    // Laplacian 邊緣檢測 + 雙邊濾波
+	vec3 color;
+	float threshold = 0.1;
+    float edgeStrength = laplacianEdge(texelSize);
+	if (edgeStrength > threshold) {
+		// 對邊緣做雙邊濾波
+		color = bilateralFilter(texelSize, 2.0, 0.1);
+	} else {
+		color = texture(screenTexture, TexCoords).rgb;
+	}
+
+    // 梯度模糊
+    // PixelColor pc = getPixelColors(texelSize);
+    // PixelLuminance pl = getPixelLuminance(pc);
+    // vec3 color = getFinalColor(pc, pl);
+
+	// 雙邊濾波
+	// vec3 color = bilateralFilter(texelSize, 2.0, 0.1);
 
     FragColor = vec4(color, 1.0);
 }

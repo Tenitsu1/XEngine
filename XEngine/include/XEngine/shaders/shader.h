@@ -17,8 +17,15 @@ namespace XEngine
 		Shader(const char* vertexPath, const char* fragmentPath);
 		~Shader();
 
-		void bind();
+		void bind(const float* vertexArray, uint32_t vertexCount, uint32_t dimensions);
 		void unbind();
+
+		void draw(int width, int height);
+
+		void setVAO();
+		void setVBO();
+		void setEBO(const void* data, size_t size);
+		void setFBO();
 
 		void setUniformInt(const std::string& name, int val);
 		void setUniformFloat1(const std::string& name, float val1);
@@ -33,8 +40,11 @@ namespace XEngine
 		void setUniformMat3(const std::string& name, const glm::mat3& mat);
 		void setUniformMat4(const std::string& name, const glm::mat4& mat);
 
+		void bindTexture(uint32_t texture, uint32_t textureUnit);
+		void createTexture(int width, int height);
 
 		inline uint32_t getProgramId() const { return mProgramId; }
+		inline uint32_t getTexture() const { return mTexture; }
 
 	private:
 		int getUniformLoctaion(const std::string& name);
@@ -44,6 +54,7 @@ namespace XEngine
 	private:
 		uint32_t mProgramId;
 		uint32_t mTexture;
+		uint32_t VAO, VBO, EBO, FBO;
 		std::unordered_map<std::string, int> mUniformLocations;
 
 		std::string shaderCode;
