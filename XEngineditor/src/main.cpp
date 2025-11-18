@@ -35,6 +35,9 @@ private:
 	GLuint mNormalsSSBO = 0;  // 新增法線 SSBO 的 ID
 	GLuint mOBVHSSBO = 0;     // OBVH SSBO ID
 	GLuint mTexCoordsSSBO = 0;
+	GLuint mMaterialIndicesSSBO = 0;
+	GLuint mPbrMaterialsSSBO = 0;
+	GLuint mMatToTexMapSSBO = 0;
 	int mTriangleCount = 0;   // 三角形數量
 
 	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
@@ -50,7 +53,6 @@ private:
 	int samples_per_pixel = 1;
 	Camera camera;
 	float lastX = 640, lastY = 450;
-	bool firstMouse = true;
 
 public:
 
@@ -67,18 +69,43 @@ public:
 
 	void initialize() override
 	{
-
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\TexCube2.gltf");
+		
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\just_a_girl\\scene.gltf");
+		
 		auto& Mesh = mModel->getMesh();
+		const auto& pbrMaterials = mModel->getMaterials();
+
 		mTriangleCount = (int)Mesh.indices.size();
+		
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
-		mComputeShader->createDebugSSBO(7);
+		mComputeShader->createDebugSSBO(9);
+		
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
+		std::vector<int> matToTexMap;
+		if (!mtinyModel.materials.empty())
+		{
+			matToTexMap.resize(mtinyModel.materials.size());
+			for (size_t i = 0; i < mtinyModel.materials.size(); ++i)
+			{
+				const auto& mat = mtinyModel.materials[i];
+				int texture_index = mat.pbrMetallicRoughness.baseColorTexture.index;
+				matToTexMap[i] = texture_index; 
+				// ---【新增的詳細日誌】---
+				XENGINE_TRACE("Material[{}]: '{}' -> maps to Texture Index: {}",
+					i, mat.name, texture_index);
+			}
+			XENGINE_TRACE("--------------------------------------");
+
+		}
+
+
 		if (mTriangleCount > 0)
 		{
 			mComputeShader->createSSBO(mOBVHSSBO, (uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.data(), 1);
+			
 			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.data(), 2);
+			
 			mComputeShader->createSSBO(mIndicesSSBO, (uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.data(), 3);
 			mComputeShader->createSSBO(mNormalsSSBO, (uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.data(), 4);
 			XENGINE_TRACE("Vertices SSBO created, size: {}, count: {}",
@@ -87,16 +114,47 @@ public:
 				(uint32_t)Mesh.indices.size() * sizeof(glm::vec2), Mesh.indices.size());
 			XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
 				(uint32_t)Mesh.normals.size() * sizeof(glm::vec2), Mesh.normals.size());
-			if (!Mesh.texCoords.empty()) {
+
+
+			if (!Mesh.texCoords.empty()) 
+			{
 				mComputeShader->createSSBO(mTexCoordsSSBO, (uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.data(), 5);
 				XENGINE_TRACE("TexCoords SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.size());
 			}
-			else {
+			else 
+			{
 				XENGINE_WARN("Model has no texture coordinates!");
 			}
+			if (!Mesh.materialIndices.empty()) {
+				// 我們將它綁定到 binding = 7 (6 已被 samplerArray 使用)
+				mComputeShader->createSSBO(mMaterialIndicesSSBO,
+					(uint32_t)Mesh.materialIndices.size() * sizeof(int),
+					Mesh.materialIndices.data(), 7);
+			}
+			if (!matToTexMap.empty()) {
+				// 綁定到下一個可用的槽位，例如 8
+				mComputeShader->createSSBO(mMatToTexMapSSBO,
+					(uint32_t)matToTexMap.size() * sizeof(int),
+					matToTexMap.data(), 8);
+				XENGINE_TRACE("MatToTexMap SSBO created and bound to 8.");
+			}
+			// 1. 獲取由 gltfLoader 解析好的 PBR 材質數據
 
+			if (!pbrMaterials.empty()) {
+				mComputeShader->createSSBO(mPbrMaterialsSSBO,
+					(uint32_t)pbrMaterials.size() * sizeof(Material), // 使用你定義的 Material 結構大小
+					pbrMaterials.data(),
+					9); // <--- 綁定到 binding point 9
+				XENGINE_TRACE("PBR Materials SSBO created, size: {}, count: {}",
+					(uint32_t)pbrMaterials.size() * sizeof(Material), pbrMaterials.size());
+			}
+			else
+			{
+				XENGINE_WARN("Model has no materials!");
+			}
 		}
+
 
 
 		// --- 新增：印出包圍盒日誌 ---
@@ -115,10 +173,13 @@ public:
 
 
 		// Camera Setup
-		camera.position = glm::vec3(-5.0, 0.0, 0.0);
+		camera.position = glm::vec3(-60.f, 90.0f, 80.f);
 		camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
 		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
 		camera.fov = 45.0f;
+
+		camera.yaw = -90.0f;  // 或 270.0f
+		camera.pitch = 0.0f;
 
 	}
 	void shutdown() override
@@ -134,7 +195,7 @@ public:
 		nowTime = Engine::Instance().getWindow().getDeltaTime();
 		deltaTime = (float)((nowTime - laseTime) * 1000 / (float)Engine::Instance().getWindow().getDeltaTime());
 
-		float deltaTimeMax = deltaTime * 10000;
+		float deltaTimeMax = deltaTime * 100000;
 		
 
 		// Camera Updata
@@ -145,36 +206,15 @@ public:
 		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTimeMax; }
 		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTimeMax; }
 
-		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LEFT)) { xkeyOffset -= keySpeed ; }
-		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_RIGHT)) { xkeyOffset += keySpeed; }
-		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_UP)) { zkeyOffset -= keySpeed * deltaTime; }
-		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_DOWN)) { zkeyOffset += keySpeed * deltaTime; }
-		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTime; }
-		//if (input::Keyboard::keyDown(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTime; }
-
-		// Mouse and keyborad input 
-		//float xNorm = input::Mouse::X() / (float)windowSize.x;
-		//float yNorm = input::Mouse::Y() / (float)windowSize.y;
-		float xNorm = input::Mouse::X();
-		float yNorm = input::Mouse::Y();
-		if (firstMouse)
-		{
-			camera.pitch = 0.0f;
-			lastX = xNorm;
-			lastY = yNorm;
-			firstMouse = false;
-		}
-
-		xkeyOffset = xNorm - lastX;
-		ykeyOffset = lastY - yNorm;
-		lastX = xNorm;
-		lastY = yNorm;
-		float sensitivity = 0.05f;
+		float xkeyOffset = input::Mouse::dX();
+		float ykeyOffset = input::Mouse::dY(); // SDL 的 yrel 向上移動是負值
+		//XENGINE_INFO("Mouse  x: {} ,  y: {}", input::Mouse::X(), input::Mouse::Y())
+		//XENGINE_INFO("Mouse dx: {} , dy: {}", input::Mouse::dX(), input::Mouse::dY())
+		float sensitivity = 0.1f;
 		xkeyOffset *= sensitivity;
 		ykeyOffset *= sensitivity;
-
 		camera.yaw += xkeyOffset;
-		camera.pitch += ykeyOffset;
+		camera.pitch -= ykeyOffset;
 
 		if (camera.pitch > 89.0f)
 			camera.pitch = 89.0f;
@@ -186,6 +226,10 @@ public:
 		front.y = sin(glm::radians(camera.pitch));
 		front.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));
 		camera.lookat = glm::normalize(front);
+		camera.right = glm::normalize(glm::cross(camera.lookat, camera.up)); 
+		camera.cameraUp = glm::normalize(glm::cross(camera.right, camera.lookat));
+		camera.direction = camera.lookat;
+
 
 		camera.direction.x = cos(glm::radians(camera.pitch)) * cos(glm::radians(camera.yaw)); 
 		camera.direction.y = sin(glm::radians(camera.pitch));
@@ -210,19 +254,20 @@ public:
 		const auto& textures = mModel->getTextures();
 		if (!textures.empty())
 		{
-			// 3. 告訴 shader sampler 使用紋理單元 6
-			int textureUnit = 6;
-			mComputeShader->setUniformInt("u_texture", textureUnit);
+			// 假設最多綁定 16 個紋理
+			int max_textures_to_bind = std::min((int)textures.size(), 32);
 
-			// 4. 將模型的第一個紋理綁定到紋理單元 6
-			//    (這裡我們調用假設的 bindTexture 方法)
-			GLuint textureID_to_bind = textures[0]; // 假設我們總是使用第一個紋理
-			mComputeShader->bindTexture(textureID_to_bind, textureUnit);
-		}
-		else
-		{
-			// 可選：如果沒有紋理，可以綁定一個空的或白色的紋理，避免 GPU 出錯
-			// mComputeShader->bindTexture(0, 6); // 綁定 0 等於解綁
+			for (int i = 0; i < max_textures_to_bind; ++i)
+			{
+				// 將紋理綁定到紋理單元 i 
+				// 假設你的 bindTexture 函數可以處理這個
+				// 紋理單元 0, 1, 2, 3 ...
+				int textureUnit = 10 + i;
+				mComputeShader->bindTexture(textures[i], textureUnit);
+			}
+
+			// 告訴 shader u_textures sampler array 的大小
+			mComputeShader->setUniformInt("u_texture_count", max_textures_to_bind);
 		}
 		
 	}

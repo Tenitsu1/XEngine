@@ -1,4 +1,4 @@
-#include "input/mouse.h"
+﻿#include "input/mouse.h"
 #include "log.h"
 
 #include <algorithm>
@@ -12,6 +12,8 @@ namespace XEngine::input
 	float Mouse::xLast = 0;
 	float Mouse::y = 0;
 	float Mouse::yLast = 0;
+	float Mouse::dx = 0;
+	float Mouse::dy = 0;
 	float Mouse::mouseWheelx = 0;
 	float Mouse::mouseWheely = 0;
 
@@ -28,6 +30,11 @@ namespace XEngine::input
 	{
 		xLast = x;
 		yLast = y;
+
+		dx = 0;
+		dy = 0;
+		mouseWheelx = 0;
+		mouseWheely = 0;
 		buttonsLast = buttons; 
 		UINT32 state = SDL_GetMouseState(&x, &y);
 
@@ -67,4 +74,37 @@ namespace XEngine::input
 		}
 		return false;
 	}
+
+	void Mouse::ProcessMouseEvent(const SDL_Event& event)
+	{
+		switch (event.type) {
+		case SDL_EVENT_MOUSE_MOTION:
+			// 累加運動，以防一幀內有多個運動事件
+			Mouse::dx += event.motion.xrel;
+			Mouse::dy += event.motion.yrel;
+
+			// 同時更新絕對位置
+			Mouse::x = event.motion.x;
+			Mouse::y = event.motion.y;
+			break;
+
+		case SDL_EVENT_MOUSE_WHEEL:
+			Mouse::mouseWheelx = event.wheel.x;
+			Mouse::mouseWheely = event.wheel.y;
+			break;
+
+		case SDL_EVENT_MOUSE_BUTTON_DOWN:
+			if (event.button.button >= XENGINE_INPUT_MOUSE_FIRST && event.button.button <= XENGINE_INPUT_MOUSE_LAST) {
+				Mouse::buttons[event.button.button - 1] = true;
+			}
+			break;
+
+		case SDL_EVENT_MOUSE_BUTTON_UP:
+			if (event.button.button >= XENGINE_INPUT_MOUSE_FIRST && event.button.button <= XENGINE_INPUT_MOUSE_LAST) {
+				Mouse::buttons[event.button.button - 1] = false;
+			}
+			break;
+		}
+	}
 }
+

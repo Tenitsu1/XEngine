@@ -12,7 +12,7 @@ namespace XEngine::OBVH {
     
 
     inline constexpr int MAX_LEAF_TRIANGLES = 8;
-    inline constexpr int MAX_DEPTH = 32;
+    inline constexpr int MAX_DEPTH = 64;
     inline constexpr float MIN_AABB_VOLUME = 8.0f;
 
     struct OBVHNode {

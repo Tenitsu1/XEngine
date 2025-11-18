@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+union SDL_Event;
 
 namespace XEngine::input
 {
@@ -12,8 +13,8 @@ namespace XEngine::input
 
 		inline static float X() { return x; }
 		inline static float Y() { return y; }
-		inline static float dX() { return x - xLast; }
-		inline static float dY() { return y - yLast; }
+		inline static float dX() { return dx; }
+		inline static float dY() { return dy; }
 
 		inline static float mouseWheelX() { return mouseWheelx; }
 		inline static float mouseWheelY() { return mouseWheely; }
@@ -22,11 +23,15 @@ namespace XEngine::input
 		static bool buttonDown(int button);
 		static bool buttonUp(int button);
 
+		static void ProcessMouseEvent(const SDL_Event& event);
 
 	private:
 		constexpr static const int buttonCount = 5; // Since SDL support up to 5 mouse button.
 		static float x, xLast;
 		static float y, yLast;
+
+		static float dx;
+		static float dy;
 
 		static float mouseWheelx;
 		static float mouseWheely;

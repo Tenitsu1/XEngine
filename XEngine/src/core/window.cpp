@@ -1,4 +1,4 @@
-#include "core/window.h"
+﻿#include "core/window.h"
 #include "engine.h"
 #include "log.h"
 
@@ -68,9 +68,12 @@ namespace XEngine::core
 		
 		SDL_GL_SetSwapInterval(0); // disable vsync
 
+		SDL_WarpMouseInWindow(mWindow,500,500);
 
+		SDL_SetWindowRelativeMouseMode(mWindow, true);
 		mImguiwindow.create(props.imguiProps);
 		return true;
+
 	}
 
 	void Window::shutdown()
@@ -82,6 +85,43 @@ namespace XEngine::core
 	}
 
 	void Window::pumpEvents()
+	{
+		// --- 步驟 1: 在所有事件處理之前，重置上一幀的輸入狀態 ---
+		// 這確保了 getDeltaX() 等函數在處理新事件前返回 0。
+		input::Mouse::update();
+		input::Keyboard::update(); // 假設 Keyboard 也有類似的 update 邏輯
+
+
+		// --- 步驟 2: 處理本幀的所有新事件 ---
+		SDL_Event event;
+		while (SDL_PollEvent(&event))
+		{
+			// 首先讓 ImGui 處理事件，它可能會「消耗」掉事件
+			mImguiwindow.handleSDLEvent(event);
+
+			// 檢查 ImGui 是否想要捕獲輸入。如果是，我們自己的遊戲邏輯就不應該響應。
+			bool isMouseCapturedByImgui = mImguiwindow.wantCaptureMouse();
+			bool isKeyboardCapturedByImgui = mImguiwindow.wantCaptureKeyboard();
+
+			// 處理 QUIT 事件 (總是要處理)
+			if (event.type == SDL_EVENT_QUIT) {
+				Engine::Instance().quit();
+			}
+
+			// 如果鼠標沒有被 ImGui 捕獲，則傳遞給我們的鼠標處理器
+			if (!isMouseCapturedByImgui) {
+				input::Mouse::ProcessMouseEvent(event);
+			}
+
+			// 如果鍵盤沒有被 ImGui 捕獲，則傳遞給我們的鍵盤處理器
+			if (!isKeyboardCapturedByImgui) {
+				input::Keyboard::update();
+			}
+
+			// 可以在這裡處理其他全局事件...
+		}
+	}
+	/*void Window::pumpEvents()
 	{
 		SDL_Event event;
 		while (SDL_PollEvent(&event))
@@ -103,13 +143,14 @@ namespace XEngine::core
 		if (!mImguiwindow.wantCaptureMouse())
 		{
 			input::Mouse::update();
+			input::Mouse::ProcessMouseEvent(event);
 		}
 		if (!mImguiwindow.wantCaptureKeyboard())
 		{
 			input::Keyboard::update();
 		}
 		
-	}
+	}*/
 
 	void Window::beginRender()
 	{
@@ -122,7 +163,6 @@ namespace XEngine::core
 		Engine::Instance().getApp().imguiRender();
 		mImguiwindow.endRender();
 		SDL_GL_SwapWindow(mWindow);
-		SDL_SetWindowRelativeMouseMode(mWindow,true);
 	}
 
 	glm::ivec2 Window::getWindowSize()

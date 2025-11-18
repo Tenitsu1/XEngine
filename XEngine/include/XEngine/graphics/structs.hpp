@@ -1,7 +1,10 @@
-#pragma once
+﻿#pragma once
 #include <external/glm/glm.hpp>
 #include <external/glm/gtc/matrix_transform.hpp>
 #include <vector>
+
+static const int InvalidID = -1;
+
 
 struct Triangle
 {
@@ -29,6 +32,28 @@ struct Mesh
 	std::vector<glm::vec4>  normals;
 	std::vector<glm::ivec4> indices;
 	std::vector<glm::vec2>  texCoords;
+	std::vector<int>        materialIndices;
+};
+
+struct Material {
+	// --- PBR Metallic-Roughness Parameters ---
+	glm::vec4 baseColorFactor = glm::vec4(1.0f);
+	int       baseColorTexture = InvalidID;
+
+	float     metallicFactor = 1.0f;
+	float     roughnessFactor = 1.0f;
+	int       metallicRoughnessTexture = InvalidID;
+
+	// --- Additional Maps ---
+	int       normalTexture = InvalidID; 
+	// int    occlusionTexture = -1; // 環境光遮蔽
+
+	// --- Emissive Properties ---
+	glm::vec3 emissiveFactor = glm::vec3(0.0f);
+	int       emissiveTexture = InvalidID; // 紋理索引, -1 表示無
+
+	// --- Special Flags ---
+	bool      isUnlit = false; // 純粹的光源
 };
 
 struct Camera
@@ -37,9 +62,9 @@ struct Camera
 	glm::vec3 lookat;
 	glm::vec3 up;
 
-	glm::vec3 direction = glm::normalize(position - lookat);
-	glm::vec3 right = glm::normalize(glm::cross(up, direction));
-	glm::vec3 cameraUp = glm::cross(direction, right);
+	glm::vec3 direction;
+	glm::vec3 right;
+	glm::vec3 cameraUp;
 
 	glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f),
 		glm::vec3(0.0f, 0.0f, 0.0f),
