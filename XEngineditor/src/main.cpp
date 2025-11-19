@@ -70,9 +70,39 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_Close.gltf");
 		auto& Mesh = mModel->getMesh();
 		const auto& pbrMaterials = mModel->getMaterials();
+		// Mesh 加入平面光源 正方形
+		float y = 7.9f;
+		glm::vec3 c(-4.0f, y, 0.0f);
+		glm::vec3 offset(2.0f, 0.0f, 2.0f);
+		glm::vec3 v0 = c - offset; // 左下
+		glm::vec3 v1 = c + glm::vec3(offset.x, 0.0f, -offset.z); // 右下
+		glm::vec3 v2 = c + offset; // 右上
+		glm::vec3 v3 = c + glm::vec3(-offset.x, 0.0f, offset.z); // 左上
+
+		// 加入頂點
+		Mesh.vertices.push_back(glm::vec4(v0, 1.0f));
+		Mesh.vertices.push_back(glm::vec4(v1, 1.0f));
+		Mesh.vertices.push_back(glm::vec4(v2, 1.0f));
+		Mesh.vertices.push_back(glm::vec4(v3, 1.0f));
+
+		// 加入法線（朝下）
+		glm::vec3 normal(0.0f, -1.0f, 0.0f);
+		for (int i = 0; i < 4; ++i)
+			Mesh.normals.push_back(glm::vec4(normal, 0.0f));
+
+		// 加入索引（兩個三角形）
+		int baseIdx = (int)Mesh.vertices.size() - 4;
+		Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 1, baseIdx + 2, 0));
+		Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 2, baseIdx + 3, 0));
+
+		// 加入材質索引（假設 LIGHT 材質在 material list 的最後一個）
+		int lightMatIdx = 0; // 或你已知的 LIGHT 材質 index
+		Mesh.materialIndices.push_back(lightMatIdx);
+		Mesh.materialIndices.push_back(lightMatIdx);
+		
 
 		mTriangleCount = (int)Mesh.indices.size();
 		

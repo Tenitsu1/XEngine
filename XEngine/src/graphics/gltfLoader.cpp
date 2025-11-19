@@ -640,11 +640,12 @@ namespace XEngine::graphics
 						const float* uv_ptr = reinterpret_cast<const float*>(uvBufferStart + v_idx * uvByteStride);
 						mMesh.texCoords.push_back(glm::vec2(uv_ptr[0], uv_ptr[1]));
 					}
-					else {
+					else 
+					{
 						mMesh.texCoords.push_back(glm::vec2(0.0f)); // 如果沒有 UV，填充默認值
 					}
 				}
-	
+
 				// --- 處理索引數據，並應用全局偏移量 ---
 				const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
 				const uint8_t* indexBufferData = &model.buffers[indexBufferView.buffer].data[indexBufferView.byteOffset + indexAccessor.byteOffset];

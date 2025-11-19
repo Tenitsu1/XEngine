@@ -28,6 +28,7 @@ float luminance(vec3 color) {
 }
 
 vec3 gaussianBlur5x5(vec2 texelSize) {
+    // 5x5 高斯模糊
     float kernel[25] = float[](
         1,  4,  7,  4, 1,
         4, 16, 26, 16, 4,
@@ -40,15 +41,18 @@ vec3 gaussianBlur5x5(vec2 texelSize) {
     int idx = 0;
     for (int y = -2; y <= 2; ++y)
         for (int x = -2; x <= 2; ++x) {
-            float k = kernel[idx];
-            sum += texture(screenTexture, TexCoords + vec2(x, y) * texelSize).rgb * k;
+            float k = kernel[idx++];
+            vec2 offset = vec2(x, y) * texelSize;
+            vec3 samp = texture(screenTexture, TexCoords + offset).rgb;
+
+            sum += samp * k;
             weight += k;
-            idx++;
         }
     return sum / weight;
 }
 
 float laplacianEdge(vec2 texelSize) {
+    // Laplacian 邊緣檢測
     float kernel[9] = float[](
         0,  1, 0,
         1, -4, 1,
@@ -58,13 +62,27 @@ float laplacianEdge(vec2 texelSize) {
     int idx = 0;
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x) {
-            float luma = luminance(texture(screenTexture, TexCoords + vec2(x, y) * texelSize).rgb);
+            vec2 offset = vec2(x, y) * texelSize;
+            vec3 samp = texture(screenTexture, TexCoords + offset).rgb;
+
+            float luma = luminance(samp);
             sum += kernel[idx++] * luma;
         }
     return abs(sum);
 }
 
+float bilateral(vec2 v, float sigma) {
+    // 雙邊濾波輔助函數
+    return exp(-dot(v, v) / (2.0 * sigma * sigma));
+}
+
+float bilateral(vec3 v, float sigma) {
+    // 雙邊濾波輔助函數
+    return exp(-dot(v, v) / (2.0 * sigma * sigma));
+}
+
 vec3 bilateralFilter(vec2 texelSize, float sigma_s, float sigma_r) {
+    // 雙邊濾波
     vec3 center = texture(screenTexture, TexCoords).rgb;
     float weightSum = 0.0;
     vec3 result = vec3(0.0);
@@ -73,9 +91,10 @@ vec3 bilateralFilter(vec2 texelSize, float sigma_s, float sigma_r) {
         for (int x = -2; x <= 2; ++x) {
             vec2 offset = vec2(x, y) * texelSize;
             vec3 samp = texture(screenTexture, TexCoords + offset).rgb;
+            vec3 diff = samp - center;
 
-            float spatial = exp(-dot(offset, offset) / (2.0 * sigma_s * sigma_s));
-            float range = exp(-dot(samp - center, samp - center) / (2.0 * sigma_r * sigma_r));
+            float spatial = bilateral(offset, sigma_s);
+            float range = bilateral(diff, sigma_r);
             float weight = spatial * range;
 
             result += samp * weight;
