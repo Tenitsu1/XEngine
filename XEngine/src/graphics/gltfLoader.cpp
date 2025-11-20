@@ -595,6 +595,8 @@ namespace XEngine::graphics
 				if (primitive.attributes.count("TEXCOORD_0")) {
 					uvAccessor = &model.accessors.at(primitive.attributes.at("TEXCOORD_0"));
 				}
+
+				
 	
 				// --- 將這個 primitive 的所有頂點數據追加到我們的 Mesh 結構中 ---
 				// 獲取頂點位置數據的指針和步長
@@ -677,17 +679,29 @@ namespace XEngine::graphics
 						-1 // w 分量未使用
 					);
 					mMesh.indices.push_back(global_indices);
-	
+
+					glm::vec3 n0_local(0.0f, 1.0f, 0.0f), n1_local(0.0f, 1.0f, 0.0f), n2_local(0.0f, 1.0f, 0.0f);
+					if (normalBufferStart && normalAccessor && i0 < normalAccessor->count && i1 < normalAccessor->count && i2 < normalAccessor->count) {
+						const float* n0_ptr = reinterpret_cast<const float*>(normalBufferStart + i0 * normalByteStride);
+						const float* n1_ptr = reinterpret_cast<const float*>(normalBufferStart + i1 * normalByteStride);
+						const float* n2_ptr = reinterpret_cast<const float*>(normalBufferStart + i2 * normalByteStride);
+						n0_local = glm::vec3(n0_ptr[0], n0_ptr[1], n0_ptr[2]);
+						n1_local = glm::vec3(n1_ptr[0], n1_ptr[1], n1_ptr[2]);
+						n2_local = glm::vec3(n2_ptr[0], n2_ptr[1], n2_ptr[2]);
+					}
+
+					glm::vec3 n0_world = glm::normalize(normalTransform * n0_local);
+					glm::vec3 n1_world = glm::normalize(normalTransform * n1_local);
+					glm::vec3 n2_world = glm::normalize(normalTransform * n2_local);
+
+					mMesh.normals.push_back(glm::vec4(n0_world, 0.0f));
+					mMesh.normals.push_back(glm::vec4(n1_world, 0.0f));
+					mMesh.normals.push_back(glm::vec4(n2_world, 0.0f));
+					
+					
+					
 					// 為這個新生成的三角形記錄材質索引
 					mMesh.materialIndices.push_back(materialIndex);
-	
-					// 計算面法線並追加
-					// 注意：法線現在是按面計算的，所以 normals 數組長度會和 indices/materialIndices 一樣
-					glm::vec3 v0 = mMesh.vertices[global_indices.x];
-					glm::vec3 v1 = mMesh.vertices[global_indices.y];
-					glm::vec3 v2 = mMesh.vertices[global_indices.z];
-					glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-					mMesh.normals.push_back(glm::vec4(normal, 0.0f));
 				}
 	
 				// 【核心修改】處理完一個 primitive 後，更新全局頂點偏移量

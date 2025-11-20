@@ -122,7 +122,6 @@ namespace XEngine::OBVH {
             {
                 // 複製當前範圍的 indices, normals, 【和 materialIndices】
                 std::vector<glm::ivec4> tmpIndices(mesh.indices.begin() + start, mesh.indices.begin() + end);
-                std::vector<glm::vec4> tmpNormals(mesh.normals.begin() + start, mesh.normals.begin() + end);
 
                 // 【新增】複製 materialIndices
                 std::vector<int> tmpMaterialIndices(mesh.materialIndices.begin() + start, mesh.materialIndices.begin() + end);
@@ -132,7 +131,6 @@ namespace XEngine::OBVH {
                     for (int origIdx : childLists[i]) {
                         // 同步寫回所有三個向量
                         mesh.indices[write] = std::move(tmpIndices[origIdx - start]);
-                        mesh.normals[write] = std::move(tmpNormals[origIdx - start]);
 
                         // 【新增】同步寫回 materialIndices
                         mesh.materialIndices[write] = tmpMaterialIndices[origIdx - start]; // int 不需要 move
