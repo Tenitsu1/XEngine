@@ -72,7 +72,7 @@ layout(std430, binding = 8) buffer MatToTexMapBuffer {
     int matToTexMap[];
 };
 
-layout(binding = 10) uniform sampler2D u_textures[32]; 
+layout(binding = 10) uniform sampler2D u_textures[16]; 
 
 
 uniform vec2 u_resolution; 
@@ -491,5 +491,6 @@ void main()
         color += trace_ray(ray, float(s));
     }
     color /= float(SAMPLES_PER_PIXEL); // 平均多重採樣結果
-    imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
+    imageStore(screenTexture, ivec2(pixel), vec4(pow(color,vec3(1.0/2.2)), 1.0));
+    // imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
 }

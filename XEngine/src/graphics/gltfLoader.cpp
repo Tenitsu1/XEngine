@@ -20,28 +20,31 @@ namespace XEngine::graphics
 {
 
 	glm::mat4 GetLocalMatrix(const tinygltf::Node& node) {
-		glm::mat4 mat = glm::mat4(1.0f);
 		if (!node.matrix.empty()) {
-			mat = glm::make_mat4(node.matrix.data());
+			return glm::make_mat4(node.matrix.data());
 		}
-		else {
-			if (!node.translation.empty()) {
-				mat = glm::translate(mat, glm::vec3(node.translation[0], node.translation[1], node.translation[2]));
-			}
-			if (!node.rotation.empty()) {
-				glm::quat q(static_cast<float>(node.rotation[3]), static_cast<float>(node.rotation[0]), static_cast<float>(node.rotation[1]), static_cast<float>(node.rotation[2]));
-				mat *= glm::mat4_cast(q);
-			}
-			if (!node.scale.empty()) {
-				mat = glm::scale(mat, glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
-			}
+
+		// 如果沒有 matrix，則根據 TRS (Translate, Rotate, Scale) 合成
+		glm::mat4 transform = glm::mat4(1.0f);
+
+		// 1. Scale
+		if (!node.scale.empty()) {
+			transform = glm::scale(transform, glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
 		}
-		return mat;
+
+		// 2. Rotate
+		if (!node.rotation.empty()) {
+			glm::quat q = glm::make_quat(node.rotation.data());
+			transform = glm::mat4_cast(q) * transform;
+		}
+
+		// 3. Translate
+		if (!node.translation.empty()) {
+			transform = glm::translate(glm::mat4(1.0f), glm::vec3(node.translation[0], node.translation[1], node.translation[2])) * transform;
+		}
+
+		return transform;
 	}
-
-
-
-	// tinygltf::Model model;
 
 	GLTFStaticMesh::GLTFStaticMesh(tinygltf::Model& model, const char* filename)
 	{
@@ -71,7 +74,6 @@ namespace XEngine::graphics
 		}
 
 		loadTextures(model);
-		loadMaterials(model);
 		vaoAndEbos = bindModel(model);
 		// extractTriangles(model);
 		extractMesh(model);
@@ -97,63 +99,52 @@ namespace XEngine::graphics
 
 	void GLTFStaticMesh::bindMesh(std::map<int, GLuint>& vbos,
 		tinygltf::Model& model, tinygltf::Mesh& mesh) {
+		// 建立一個靜態的 map 來映射 glTF 屬性名稱到 GLSL location
+		static const std::map<std::string, GLuint> attributeLocations = {
+			{"POSITION", 0},
+			{"NORMAL", 1},
+			{"TEXCOORD_0", 2}
+		};
+
 		for (int i = 0; i < model.bufferViews.size(); ++i) {
 			const tinygltf::BufferView& bufferView = model.bufferViews[i];
-			if (bufferView.target == 0) {  // TODO impl drawarrays
-				XENGINE_WARN("WARN: bufferView.target is zero");
-				continue;  // Unsupported bufferView.
-				/*
-				  From spec2.0 readme:
-				  https://github.com/KhronosGroup/glTF/tree/master/specification/2.0
-						   ... drawArrays function should be used with a count equal to
-				  the count            property of any of the accessors referenced by the
-				  attributes            property            (they are all equal for a given
-				  primitive).
-				*/
+			if (bufferView.target == 0) {
+				XENGINE_WARN("WARN: bufferView.target is zero, skipping.");
+				continue;
 			}
-
 			const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
-			//XENGINE_TRACE("bufferview.target {} ", bufferView.target);
-
 			GLuint vbo;
 			glGenBuffers(1, &vbo);
 			vbos[i] = vbo;
 			glBindBuffer(bufferView.target, vbo);
-
-			/*XENGINE_TRACE("buffer.data.size = {}, bufferview.byteOffset = {}"
-				, buffer.data.size(), bufferView.byteOffset);*/
-
 			glBufferData(bufferView.target, bufferView.byteLength,
 				&buffer.data.at(0) + bufferView.byteOffset, GL_STATIC_DRAW);
 		}
 
+		// 遍歷 Primitives
 		for (size_t i = 0; i < mesh.primitives.size(); ++i) {
 			tinygltf::Primitive primitive = mesh.primitives[i];
-			tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
 
-			for (auto& attrib : primitive.attributes) {
-				tinygltf::Accessor accessor = model.accessors[attrib.second];
-				int byteStride =
-					accessor.ByteStride(model.bufferViews[accessor.bufferView]);
+			// 遍歷這個 Primitive 的所有屬性
+			for (const auto& attrib : primitive.attributes) {
+				const tinygltf::Accessor& accessor = model.accessors[attrib.second];
+				int byteStride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
 				glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
 
-				int size = 1;
-				if (accessor.type != TINYGLTF_TYPE_SCALAR) {
-					size = accessor.type;
-				}
+				int size = (accessor.type == TINYGLTF_TYPE_SCALAR) ? 1 : accessor.type;
 
-				int vaa = -1;
-				if (attrib.first.compare("POSITION") == 0) vaa = 0;
-				if (attrib.first.compare("NORMAL") == 0) vaa = 1;
-				if (attrib.first.compare("TEXCOORD_0") == 0) vaa = 2;
-				if (vaa > -1) {
+				// 使用 map 來查找屬性位置
+				auto it = attributeLocations.find(attrib.first);
+				if (it != attributeLocations.end()) {
+					GLuint vaa = it->second;
 					glEnableVertexAttribArray(vaa);
 					glVertexAttribPointer(vaa, size, accessor.componentType,
 						accessor.normalized ? GL_TRUE : GL_FALSE,
 						byteStride, BUFFER_OFFSET(accessor.byteOffset));
 				}
-				else
-					XENGINE_WARN("vaa missing: {}", attrib.first);
+				else {
+					XENGINE_WARN("vaa missing or unsupported attribute: {}", attrib.first);
+				}
 			}
 		}
 	}
@@ -200,16 +191,14 @@ namespace XEngine::graphics
 
 	void GLTFStaticMesh::loadTextures(tinygltf::Model& model)
 	{
-		mTextures.resize(model.textures.size());
 		if (model.textures.empty()) return;
+
+		mTextures.resize(model.textures.size());
 		glGenTextures((GLsizei)model.textures.size(), mTextures.data());
 
 		for (size_t i = 0; i < model.textures.size(); i++) {
 			const tinygltf::Texture& tex = model.textures[i];
-
-			if (tex.source < 0) {
-				continue;
-			}
+			if (tex.source < 0) continue;
 
 			glBindTexture(GL_TEXTURE_2D, mTextures[i]);
 
@@ -220,76 +209,35 @@ namespace XEngine::graphics
 			else if (image.component == 2) format = GL_RG;
 			else if (image.component == 3) format = GL_RGB;
 
-			GLenum type = GL_UNSIGNED_BYTE;
-			if (image.bits == 16) type = GL_UNSIGNED_SHORT;
+			GLenum internalFormat = (format == GL_RGBA) ? GL_SRGB_ALPHA : GL_SRGB;
+			GLenum type = (image.bits == 16) ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE;
 
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
-				format, type, &image.image.at(0));
+			glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, image.width, image.height, 0, format, type, &image.image.at(0));
+			glGenerateMipmap(GL_TEXTURE_2D);
 
-			// 設置紋理參數 (Sampler)
+			// --- 簡化 Sampler 設置邏輯 ---
+			// 1. 設置預設值
+			GLint minFilter = GL_LINEAR_MIPMAP_LINEAR;
+			GLint magFilter = GL_LINEAR;
+			GLint wrapS = GL_REPEAT;
+			GLint wrapT = GL_REPEAT;
+
+			// 2. 如果模型中定義了 sampler，則覆蓋預設值
 			if (tex.sampler >= 0) {
 				const tinygltf::Sampler& sampler = model.samplers[tex.sampler];
-				// glTF enums directly map to OpenGL enums
-				// https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#appendix-a-enums
-				// 如果 glTF 檔案中沒有定義，tinygltf 會給出預設值 (通常是 REPEAT 和 LINEAR)
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sampler.minFilter == -1 ? GL_LINEAR_MIPMAP_LINEAR : sampler.minFilter);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sampler.magFilter == -1 ? GL_LINEAR : sampler.magFilter);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, sampler.wrapS);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, sampler.wrapT);
-			}
-			else {
-				// 如果 glTF 紋理沒有指定 sampler，使用預設值
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				if (sampler.minFilter != -1) minFilter = sampler.minFilter;
+				if (sampler.magFilter != -1) magFilter = sampler.magFilter;
+				wrapS = sampler.wrapS;
+				wrapT = sampler.wrapT;
 			}
 
-			glGenerateMipmap(GL_TEXTURE_2D);
-			glBindTexture(GL_TEXTURE_2D, 0);
+			// 3. 一次性應用所有參數
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
 		}
-	}
-
-	void GLTFStaticMesh::loadMaterials(tinygltf::Model& model)
-	{
-		mMaterials.clear();
-		for (const auto& mat : model.materials) {
-			Material newMaterial;
-
-			// 檢查 KHR_materials_unlit 擴展
-			if (mat.extensions.find("KHR_materials_unlit") != mat.extensions.end()) {
-				newMaterial.isUnlit = true;
-			}
-
-			// 讀取 PBR Metallic-Roughness 屬性
-			const auto& pbr = mat.pbrMetallicRoughness;
-
-			// Base Color
-			if (pbr.baseColorFactor.size() == 4) {
-				newMaterial.baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
-			}
-			newMaterial.baseColorTexture = pbr.baseColorTexture.index;
-
-			// Metallic and Roughness
-			newMaterial.metallicFactor = (float)pbr.metallicFactor;
-			newMaterial.roughnessFactor = (float)pbr.roughnessFactor;
-			newMaterial.metallicRoughnessTexture = pbr.metallicRoughnessTexture.index;
-
-			// Normal Map
-			newMaterial.normalTexture = mat.normalTexture.index;
-
-			// Emissive Map
-			if (mat.emissiveFactor.size() == 3) {
-				newMaterial.emissiveFactor = glm::make_vec3(mat.emissiveFactor.data());
-			}
-			newMaterial.emissiveTexture = mat.emissiveTexture.index;
-
-			// (可選) Occlusion Map
-			// newMaterial.occlusionTexture = mat.occlusionTexture.index;
-
-			mMaterials.push_back(newMaterial);
-		}
-		XENGINE_TRACE("Loaded {} materials from glTF file.", mMaterials.size());
+		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
 
@@ -369,6 +317,90 @@ namespace XEngine::graphics
 		}
 
 		glBindVertexArray(0);
+	}
+
+	// Helper function for recursive traversal
+	void printNodeMaterialInfo(const tinygltf::Model& model, const tinygltf::Node& node, int depth) {
+	    // --- Print Node Info ---
+	    std::string indent(depth * 2, ' '); // Indentation for hierarchy
+	    // 使用 C++20 的 std::format 或者 fmtlib，XENGINE_TRACE 內部已經封裝好了
+	    XENGINE_TRACE("{}[Node {}] '{}'", indent, (&node - &model.nodes[0]), (node.name.empty() ? "unnamed" : node.name));
+	
+	    // --- Check if Node has a Mesh ---
+	    if (node.mesh >= 0 && node.mesh < model.meshes.size()) {
+	        const tinygltf::Mesh& mesh = model.meshes[node.mesh];
+	        XENGINE_TRACE("{}  -> Mesh {}: '{}'", indent, node.mesh, (mesh.name.empty() ? "unnamed" : mesh.name));
+	
+	        // --- Iterate through Mesh Primitives ---
+	        for (size_t i = 0; i < mesh.primitives.size(); ++i) {
+	            const tinygltf::Primitive& primitive = mesh.primitives[i];
+	            XENGINE_TRACE("{}    - Primitive {}:", indent, i);
+	
+	            // --- Get Material Info ---
+	            if (primitive.material >= 0 && primitive.material < model.materials.size()) {
+	                const tinygltf::Material& material = model.materials[primitive.material];
+	                XENGINE_TRACE("{}      - Material {}: '{}'", indent, primitive.material, (material.name.empty() ? "unnamed" : material.name));
+	                
+	                // --- Get Texture Info ---
+	                int textureIndex = material.pbrMetallicRoughness.baseColorTexture.index;
+	                if (textureIndex >= 0 && textureIndex < model.textures.size()) {
+	                    const tinygltf::Texture& texture = model.textures[textureIndex];
+	                    XENGINE_TRACE("{}        - BaseColorTexture {}", indent, textureIndex);
+	
+	                    // --- Get Image Info ---
+	                    if (texture.source >= 0 && texture.source < model.images.size()) {
+	                        const tinygltf::Image& image = model.images[texture.source];
+	                        XENGINE_TRACE("{}          -> Image {}: '{}'", indent, texture.source, (image.uri.empty() ? "embedded" : image.uri));
+	                    } else {
+	                        XENGINE_WARN("{}          -> No Image source found for Texture {}.", indent, textureIndex);
+	                    }
+	                } else {
+	                    XENGINE_TRACE("{}        - No BaseColorTexture assigned.", indent);
+	                }
+	
+	            } else {
+	                XENGINE_WARN("{}      - No Material assigned.", indent);
+	            }
+	        }
+	    }
+	
+	    // --- Recurse into Children ---
+	    for (size_t i = 0; i < node.children.size(); ++i) {
+	        int childNodeIndex = node.children[i];
+	        if (childNodeIndex >= 0 && childNodeIndex < model.nodes.size()) {
+	            printNodeMaterialInfo(model, model.nodes[childNodeIndex], depth + 1);
+	        }
+	    }
+	}
+	
+	
+	// The public member function implementation, now using XENGINE_TRACE
+	void XEngine::graphics::GLTFStaticMesh::printMaterialTextureMapping(const tinygltf::Model& model) {
+	    XENGINE_TRACE(""); // Print an empty line for spacing
+	    XENGINE_INFO("========================================");
+	    XENGINE_INFO("  glTF Material-Texture Mapping Report");
+	    XENGINE_INFO("========================================");
+	
+	    if (model.scenes.empty()) {
+	        XENGINE_WARN("No scenes found in the model.");
+	        return;
+	    }
+	
+	    // Start traversal from the root nodes of the default scene
+	    const tinygltf::Scene& scene = model.scenes[model.defaultScene > -1 ? model.defaultScene : 0];
+	    XENGINE_INFO("Processing Scene {}: '{}'\n", (model.defaultScene > -1 ? model.defaultScene : 0), scene.name);
+	
+	    for (size_t i = 0; i < scene.nodes.size(); ++i) {
+	        int rootNodeIndex = scene.nodes[i];
+	        if (rootNodeIndex >= 0 && rootNodeIndex < model.nodes.size()) {
+	            printNodeMaterialInfo(model, model.nodes[rootNodeIndex], 0);
+	        }
+	    }
+	
+	    XENGINE_INFO("========================================");
+	    XENGINE_INFO("          End of Report");
+	    XENGINE_INFO("========================================");
+	    XENGINE_TRACE(""); // Print an empty line for spacing
 	}
 
 	void GLTFStaticMesh::extractTriangles(tinygltf::Model& model)
@@ -578,26 +610,34 @@ namespace XEngine::graphics
 		if (node.mesh > -1) {
 			const tinygltf::Mesh& mesh = model.meshes[node.mesh];
 			// 遍歷 mesh 中的所有 primitive (每個 primitive 都是一個獨立的繪製調用)
+
 			for (size_t p = 0; p < mesh.primitives.size(); ++p) {
+
 				const tinygltf::Primitive& primitive = mesh.primitives[p];
-				if (primitive.indices < 0 || primitive.attributes.find("POSITION") == primitive.attributes.end()) {
+				if (primitive.indices < 0 || primitive.attributes.find("POSITION") == primitive.attributes.end())
+				{
 					continue; // 跳過沒有索引或沒有頂點位置的 primitive
 				}
+
 	
 				// --- 獲取數據訪問器 (Accessor) ---
 				const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
 				const tinygltf::Accessor& posAccessor = model.accessors.at(primitive.attributes.at("POSITION"));
 				const tinygltf::Accessor* normalAccessor = nullptr;
-				if (primitive.attributes.count("NORMAL")) {
+				if (primitive.attributes.count("NORMAL")) 
+				{
 					normalAccessor = &model.accessors.at(primitive.attributes.at("NORMAL"));
 				}
 				const tinygltf::Accessor* uvAccessor = nullptr;
-				if (primitive.attributes.count("TEXCOORD_0")) {
+				if (primitive.attributes.count("TEXCOORD_0")) 
+				{
 					uvAccessor = &model.accessors.at(primitive.attributes.at("TEXCOORD_0"));
 				}
+				else
+				{
+					XENGINE_WARN("Mesh '{}', Primitive {} has no texture coordinates (TEXCOORD_0).", mesh.name, p);
+				}
 
-				
-	
 				// --- 將這個 primitive 的所有頂點數據追加到我們的 Mesh 結構中 ---
 				// 獲取頂點位置數據的指針和步長
 				const tinygltf::BufferView& posBufferView = model.bufferViews[posAccessor.bufferView];
@@ -622,7 +662,8 @@ namespace XEngine::graphics
 					uvBufferStart = &model.buffers[uvBufferView.buffer].data[uvBufferView.byteOffset + uvAccessor->byteOffset];
 					uvByteStride = uvAccessor->ByteStride(uvBufferView);
 				}
-	
+				
+
 				// 遍歷這個 primitive 的所有頂點，並追加到 mMesh
 				for (size_t v_idx = 0; v_idx < posAccessor.count; ++v_idx) {
 					// 讀取局部頂點位置
@@ -637,6 +678,7 @@ namespace XEngine::graphics
 					m_boundsMin = glm::min(m_boundsMin, v_world);
 					m_boundsMax = glm::max(m_boundsMax, v_world);
 	
+
 					// 讀取並追加 UV (如果存在)
 					if (uvAccessor && uvBufferStart) {
 						const float* uv_ptr = reinterpret_cast<const float*>(uvBufferStart + v_idx * uvByteStride);
@@ -655,23 +697,26 @@ namespace XEngine::graphics
 	
 				// 遍歷這個 primitive 的所有索引
 				for (size_t j = 0; j < indexAccessor.count; j += 3) {
-					unsigned int i0 = 0, i1 = 0, i2 = 0;
-	
-					// 根據 componentType 讀取局部的索引值
-					if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+					unsigned int i0, i1, i2;
+
+					// 使用 switch 簡化索引讀取
+					switch (indexAccessor.componentType) {
+					case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
 						const uint16_t* indices = reinterpret_cast<const uint16_t*>(&indexBufferData[j * sizeof(uint16_t)]);
 						i0 = indices[0]; i1 = indices[1]; i2 = indices[2];
+						break;
 					}
-					else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
+					case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
 						const uint32_t* indices = reinterpret_cast<const uint32_t*>(&indexBufferData[j * sizeof(uint32_t)]);
 						i0 = indices[0]; i1 = indices[1]; i2 = indices[2];
+						break;
 					}
-					else {
+					default:
 						XENGINE_WARN("Unsupported index component type: {}", indexAccessor.componentType);
-						continue;
+						continue; // 跳過此三角形
 					}
-	
-					// 【核心修改】將局部索引加上基底偏移量，得到全局索引
+
+					// 將局部索引加上基底偏移量，得到全局索引
 					glm::ivec4 global_indices(
 						i0 + vertex_offset,
 						i1 + vertex_offset,
@@ -717,232 +762,3 @@ namespace XEngine::graphics
 	
 	}
 }
-
-
-
-
-	//void GLTFStaticMesh::extractMesh(tinygltf::Model& model)
-	//{
-	//	mMesh.vertices.clear();
-	//	mMesh.normals.clear();
-	//	mMesh.indices.clear();
-	//	mMesh.texCoords.clear();
-	//	const tinygltf::Scene& scene = model.scenes[model.defaultScene > -1 ? model.defaultScene : 0];
-
-	//	// 從根節點開始，初始變換是單位矩陣
-	//	for (size_t i = 0; i < scene.nodes.size(); ++i) {
-	//		const tinygltf::Node& node = model.nodes[scene.nodes[i]];
-	//		extractNodeMesh(model, node, glm::mat4(1.0f));
-	//	}
-	//}
-
-	//void GLTFStaticMesh::extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform)
-	//{
-	//	glm::mat4 worldTransform = parentTransform * GetLocalMatrix(node);
-	//	glm::mat3 normalTransform = glm::transpose(glm::inverse(glm::mat3(worldTransform)));
-
-	//	if (node.mesh > -1) {
-	//		const tinygltf::Mesh& mesh = model.meshes[node.mesh];
-	//		for (size_t p = 0; p < mesh.primitives.size(); ++p) {
-	//			const tinygltf::Primitive& primitive = mesh.primitives[p];
-	//			if (primitive.indices < 0 || primitive.attributes.find("POSITION") == primitive.attributes.end()) {
-	//				continue; // 跳過沒有索引或沒有頂點位置的 primitive
-	//			}
-
-	//			// 獲取當前 primitive 的材質索引
-	//			int materialIndex = primitive.material;
-
-	//			// --- 顶点位置数据 ---
-	//			const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
-	//			const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
-	//			const tinygltf::Buffer& indexBuffer = model.buffers[indexBufferView.buffer];
-	//			// 指標計算：同時考慮 bufferView 和 accessor 的 byteOffset
-	//			const uint8_t* indexBufferData = &indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset];
-
-	//			const tinygltf::Accessor& posAccessor = model.accessors.at(primitive.attributes.at("POSITION"));
-	//			const tinygltf::BufferView& posBufferView = model.bufferViews[posAccessor.bufferView];
-	//			const tinygltf::Buffer& posBuffer = model.buffers[posBufferView.buffer];
-	//			const uint8_t* posBufferStart = &posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset];
-	//			// 使用 byteStride 來正確地跳轉到下一個頂點
-	//			size_t posByteStride = posAccessor.ByteStride(posBufferView);
-
-	//			// --- 法线数据 ---
-	//			const uint8_t* normalBufferStart = nullptr;
-	//			size_t normalByteStride = 0;
-	//			const tinygltf::Accessor* normalAccessor = nullptr; // 使用指標以處理不存在的情況
-	//			if (primitive.attributes.count("NORMAL")) {
-	//				normalAccessor = &model.accessors.at(primitive.attributes.at("NORMAL"));
-	//				const tinygltf::BufferView& normalBufferView = model.bufferViews[normalAccessor->bufferView];
-	//				const tinygltf::Buffer& normalBuffer = model.buffers[normalBufferView.buffer];
-	//				normalBufferStart = &normalBuffer.data[normalBufferView.byteOffset + normalAccessor->byteOffset];
-	//				normalByteStride = normalAccessor->ByteStride(normalBufferView);
-	//			}
-
-	//			// --- [新增] 紋理座標 (UV) 数据 ---
-	//			const uint8_t* uvBufferStart = nullptr;
-	//			size_t uvByteStride = 0;
-	//			const tinygltf::Accessor* uvAccessor = nullptr;
-	//			// glTF 通常使用 TEXCOORD_0 作為第一層 UV
-	//			if (primitive.attributes.count("TEXCOORD_0")) {
-	//				uvAccessor = &model.accessors.at(primitive.attributes.at("TEXCOORD_0"));
-	//				const tinygltf::BufferView& uvBufferView = model.bufferViews[uvAccessor->bufferView];
-	//				const tinygltf::Buffer& uvBuffer = model.buffers[uvBufferView.buffer];
-	//				uvBufferStart = &uvBuffer.data[uvBufferView.byteOffset + uvAccessor->byteOffset];
-	//				uvByteStride = uvAccessor->ByteStride(uvBufferView);
-	//			}
-
-	//			// --- 獲取頂點總數以進行邊界檢查 ---
-	//			const size_t vertexCount = posAccessor.count;
-
-	//			for (size_t j = 0; j < indexAccessor.count; j += 3) 
-	//			{
-	//				// 1. 在迴圈開始時進行初始化
-	//				unsigned int i0 = 0, i1 = 0, i2 = 0;
-	//				bool indices_valid = true; // 添加一個標誌來追蹤索引是否成功讀取
-
-	//				// 2. 讀取索引，並在不支援的類型時設置標誌
-	//				if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) 
-	//				{
-	//					const uint16_t* indices = reinterpret_cast<const uint16_t*>(&indexBufferData[j * sizeof(uint16_t)]);
-	//					i0 = indices[0];
-	//					i1 = indices[1];
-	//					i2 = indices[2];
-	//				}
-	//				else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) 
-	//				{
-	//					const uint32_t* indices = reinterpret_cast<const uint32_t*>(&indexBufferData[j * sizeof(uint32_t)]);
-	//					i0 = indices[0];
-	//					i1 = indices[1];
-	//					i2 = indices[2];
-	//				}
-	//				else 
-	//				{
-	//					// 如果索引類型不支援，設置標誌並準備跳過
-	//					XENGINE_WARN("Unsupported index component type: {}", indexAccessor.componentType);
-	//					indices_valid = false;
-	//				}
-
-	//				// 3. 檢查標誌，如果無效則跳過此三角形
-	//				if (!indices_valid) 
-	//				{
-	//					continue;
-	//				}
-
-	//				// --- 新增：邊界檢查 (現在 i0, i1, i2 肯定是初始化的) ---
-	//				if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
-	//				{
-	//					XENGINE_WARN("Vertex index out of bounds! Index values: ({}, {}, {}), Vertex count: {}. Skipping triangle.", i0, i1, i2, vertexCount);
-	//					continue; // 跳過這個無效的三角形
-	//				}
-	//				// --- 更安全地讀取頂點和法線 ---
-	//				// 使用 byte-addressing，而不是假設它們是緊密排列的 float 陣列
-	//				const float* v0_ptr = reinterpret_cast<const float*>(posBufferStart + i0 * posByteStride);
-	//				const float* v1_ptr = reinterpret_cast<const float*>(posBufferStart + i1 * posByteStride);
-	//				const float* v2_ptr = reinterpret_cast<const float*>(posBufferStart + i2 * posByteStride);
-
-	//				glm::vec3 v0_local(v0_ptr[0], v0_ptr[1], v0_ptr[2]);
-	//				glm::vec3 v1_local(v1_ptr[0], v1_ptr[1], v1_ptr[2]);
-	//				glm::vec3 v2_local(v2_ptr[0], v2_ptr[1], v2_ptr[2]);
-
-	//				// --- [新增] 讀取 UV 座標 ---
-	//				glm::vec2 uv0(0.0f), uv1(0.0f), uv2(0.0f);
-	//				if (uvBufferStart && uvAccessor) {
-	//					// 注意邊界檢查
-	//					if (i0 < uvAccessor->count) {
-	//						const float* uv0_ptr = reinterpret_cast<const float*>(uvBufferStart + i0 * uvByteStride);
-	//						uv0 = glm::vec2(uv0_ptr[0], uv0_ptr[1]);
-	//					}
-	//					if (i1 < uvAccessor->count) {
-	//						const float* uv1_ptr = reinterpret_cast<const float*>(uvBufferStart + i1 * uvByteStride);
-	//						uv1 = glm::vec2(uv1_ptr[0], uv1_ptr[1]);
-	//					}
-	//					if (i2 < uvAccessor->count) {
-	//						const float* uv2_ptr = reinterpret_cast<const float*>(uvBufferStart + i2 * uvByteStride);
-	//						uv2 = glm::vec2(uv2_ptr[0], uv2_ptr[1]);
-	//					}
-	//				}
-
-	//				glm::vec3 n0_local(0.0f, 1.0f, 0.0f), n1_local(0.0f, 1.0f, 0.0f), n2_local(0.0f, 1.0f, 0.0f);
-	//				if (normalBufferStart && normalAccessor && i0 < normalAccessor->count && i1 < normalAccessor->count && i2 < normalAccessor->count) {
-	//					const float* n0_ptr = reinterpret_cast<const float*>(normalBufferStart + i0 * normalByteStride);
-	//					const float* n1_ptr = reinterpret_cast<const float*>(normalBufferStart + i1 * normalByteStride);
-	//					const float* n2_ptr = reinterpret_cast<const float*>(normalBufferStart + i2 * normalByteStride);
-	//					n0_local = glm::vec3(n0_ptr[0], n0_ptr[1], n0_ptr[2]);
-	//					n1_local = glm::vec3(n1_ptr[0], n1_ptr[1], n1_ptr[2]);
-	//					n2_local = glm::vec3(n2_ptr[0], n2_ptr[1], n2_ptr[2]);
-	//				}
-
-	//				// --- 变换到世界空间 ---
-	//				glm::vec3 v0_world = worldTransform * glm::vec4(v0_local, 1.0f);
-	//				glm::vec3 v1_world = worldTransform * glm::vec4(v1_local, 1.0f);
-	//				glm::vec3 v2_world = worldTransform * glm::vec4(v2_local, 1.0f);
-
-	//				glm::vec3 n0_world = glm::normalize(normalTransform * n0_local);
-	//				glm::vec3 n1_world = glm::normalize(normalTransform * n1_local);
-	//				glm::vec3 n2_world = glm::normalize(normalTransform * n2_local);
-
-	//				// --- 更新包围盒 ---
-	//				m_boundsMin = glm::min(m_boundsMin, v0_world);
-	//				m_boundsMin = glm::min(m_boundsMin, v1_world);
-	//				m_boundsMin = glm::min(m_boundsMin, v2_world);
-	//				m_boundsMax = glm::max(m_boundsMax, v0_world);
-	//				m_boundsMax = glm::max(m_boundsMax, v1_world);
-	//				m_boundsMax = glm::max(m_boundsMax, v2_world);
-
-	//				// --- 存入 mMesh ---
-	//				glm::vec4 v0_world_v4(v0_world, 1.0f);
-	//				glm::vec4 v1_world_v4(v1_world, 1.0f);
-	//				glm::vec4 v2_world_v4(v2_world, 1.0f);
-	//				glm::ivec4 indice(-1, -1, -1, -1);
-	//				// [重要修改] 去重現在必須檢查 位置 AND UV
-	//				// 如果位置相同但 UV 不同，視為不同頂點 (例如貼圖接縫處)
-	//				// 假設 mMesh 有一個 std::vector<glm::vec2> texCoords;
-	//				for (int i = 0; i < mMesh.vertices.size(); i++) {
-	//					// 這裡使用了 epsilon 比較 (glm::equal 可能需要定義 epsilon，或者直接比較)
-	//					// 為了簡單起見，這裡假設 operator== 已正確重載或直接比較
-	//					bool p0_match = (mMesh.vertices[i] == v0_world_v4) && (mMesh.texCoords[i] == uv0);
-	//					bool p1_match = (mMesh.vertices[i] == v1_world_v4) && (mMesh.texCoords[i] == uv1);
-	//					bool p2_match = (mMesh.vertices[i] == v2_world_v4) && (mMesh.texCoords[i] == uv2);
-
-	//					if (p0_match) indice.x = i;
-	//					if (p1_match) indice.y = i;
-	//					if (p2_match) indice.z = i;
-
-	//					if (indice.x != -1 && indice.y != -1 && indice.z != -1) {
-	//						break;
-	//					}
-	//				}
-
-	//				for (int i = 0; i < 3; i++)
-	//				{
-	//					if (indice[i] == -1) {
-	//						indice[i] = static_cast<int>(mMesh.vertices.size());
-	//						// 根據索引將對應的 位置 和 UV 存入
-	//						if (i == 0) {
-	//							mMesh.vertices.push_back(v0_world_v4);
-	//							mMesh.texCoords.push_back(uv0); // [新增] 存入 UV
-	//						}
-	//						if (i == 1) {
-	//							mMesh.vertices.push_back(v1_world_v4);
-	//							mMesh.texCoords.push_back(uv1); // [新增] 存入 UV
-	//						}
-	//						if (i == 2) {
-	//							mMesh.vertices.push_back(v2_world_v4);
-	//							mMesh.texCoords.push_back(uv2); // [新增] 存入 UV
-	//						}
-	//					}
-	//				}
-	//				mMesh.indices.push_back(indice);
-	//				glm::vec3 normal = glm::normalize(glm::cross(v1_world - v0_world, v2_world - v0_world));
-	//				mMesh.normals.push_back(glm::vec4(normal, 0.0f));
-
-	//				// 生成的Mesh記錄材質索引
-	//				mMesh.materialIndices.push_back(materialIndex);
-	//			}
-	//		}
-	//	}
-
-	//	// 遞迴處理子節點
-	//	for (size_t i = 0; i < node.children.size(); ++i) {
-	//		extractNodeMesh(model, model.nodes[node.children[i]], worldTransform);
-	//	}

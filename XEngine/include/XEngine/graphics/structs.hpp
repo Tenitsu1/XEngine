@@ -35,26 +35,6 @@ struct Mesh
 	std::vector<int>        materialIndices;
 };
 
-struct Material {
-	// --- PBR Metallic-Roughness Parameters ---
-	glm::vec4 baseColorFactor = glm::vec4(1.0f);
-	int       baseColorTexture = InvalidID;
-
-	float     metallicFactor = 1.0f;
-	float     roughnessFactor = 1.0f;
-	int       metallicRoughnessTexture = InvalidID;
-
-	// --- Additional Maps ---
-	int       normalTexture = InvalidID; 
-	// int    occlusionTexture = -1; // 環境光遮蔽
-
-	// --- Emissive Properties ---
-	glm::vec3 emissiveFactor = glm::vec3(0.0f);
-	int       emissiveTexture = InvalidID; // 紋理索引, -1 表示無
-
-	// --- Special Flags ---
-	bool      isUnlit = false; // 純粹的光源
-};
 
 struct Camera
 {

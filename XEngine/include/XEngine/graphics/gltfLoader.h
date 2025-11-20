@@ -28,8 +28,6 @@ namespace tinygltf
 
 namespace XEngine::graphics
 {
-	class Shader;
-
 	class GLTFStaticMesh
 	{
 	public:
@@ -49,24 +47,21 @@ namespace XEngine::graphics
 		void drawModel(tinygltf::Model& model);
 		std::pair<GLuint, std::map<int, GLuint>> bindModel(tinygltf::Model& model);
 		void dbgModel(tinygltf::Model& model);
-		/*std::pair<unsigned int, std::map<int, unsigned int>> bindModel();
-
-		void prepareForDrawing();
-		void draw();*/
 
 		inline std::vector<Triangle>& getTriangles() { return mTriangles; }
 		inline Mesh& getMesh() { return mMesh; }
-		const std::vector<Material>& getMaterials() const { return mMaterials; }
 		inline const std::vector<GLuint>& getTextures() const { return mTextures; }
+
+
+		// Debug
+		void printMaterialTextureMapping(const tinygltf::Model& model);
 
 	private:
 		std::vector<Triangle> mTriangles;
 		Mesh mMesh;
-		std::vector<Material> mMaterials;
 		void extractTriangles(tinygltf::Model& model);
 		void extractNodeTriangles(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
 		void extractMesh(tinygltf::Model& model);
-		// void extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
 		void extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform, unsigned int& vertex_offset);
 
 	private:
@@ -77,16 +72,10 @@ namespace XEngine::graphics
 		void drawModelNodes(const std::pair<GLuint, std::map<int, GLuint>>& VAO_and_EBOs, tinygltf::Model& model, tinygltf::Node& node);
 
 		void loadTextures(tinygltf::Model& model);
-		void loadMaterials(tinygltf::Model& model);
 
 	private:
 		std::pair<GLuint, std::map<int, GLuint>> vaoAndEbos;
 		std::vector<GLuint> mTextures;
-		std::weak_ptr<Shader> mShader;
-		/*void bindModelNodes(std::map<int, unsigned int>& mEbos, tinygltf::Node& node);
-		void bindMesh(std::map<int, unsigned int>& mEbos, tinygltf::Mesh& mesh);
-		void drawModelNodes(tinygltf::Node& node);
-		void drawMesh(const std::map<int, unsigned int>& mEbos, tinygltf::Mesh& mesh);*/
 	};
 
 

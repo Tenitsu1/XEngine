@@ -1,4 +1,4 @@
-#include "graphics/texture.h"
+﻿#include "graphics/texture.h"
 #define STB_IMAGE_IMPLEMENTATION
 
 #include "external/stb/stb_image.h"
@@ -67,9 +67,22 @@ namespace XEngine::graphics
 
 		if (mPixels && dataFormat != 0)
 		{
-			glTexImage2D(GL_TEXTURE_2D, 0, dataFormat, mWidth, mHeight, 0, dataFormat, GL_UNSIGNED_BYTE, mPixels);
+			// 【建議修改】
+			GLenum internalFormat = dataFormat;
+			if (dataFormat == GL_RGBA) {
+				internalFormat = GL_SRGB_ALPHA;
+			}
+			else if (dataFormat == GL_RGB) {
+				internalFormat = GL_SRGB;
+			}
+
+			glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, mWidth, mHeight, 0, dataFormat, GL_UNSIGNED_BYTE, mPixels);
+			glGenerateMipmap(GL_TEXTURE_2D); // <-- 建議加上 Mipmap 生成
 			setTextureFilter(mFilter);
 			XENGINE_TRACE("Loaded {}-channel texture: {}", mNumChannels, mPath.c_str());
+			/*glTexImage2D(GL_TEXTURE_2D, 0, dataFormat, mWidth, mHeight, 0, dataFormat, GL_UNSIGNED_BYTE, mPixels);
+			setTextureFilter(mFilter);
+			XENGINE_TRACE("Loaded {}-channel texture: {}", mNumChannels, mPath.c_str());*/
 		}
 		else
 		{
