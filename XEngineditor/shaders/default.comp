@@ -24,13 +24,19 @@ struct Ray {
 };
 
 struct Material {
-    int type;        // 材質類型，例如 DIFFUSE, GLASS, LIGHT
-    float roughness; // 粗糙度（可選）
-    float ior;       // 折射率（可選，玻璃用）
+    int type;                       // 材質類型
+    vec3 baseColor;                 // 基础颜色因子
+    int baseColorTexture;           // 基础颜色贴图
+    int metallic;                   // 金属度因子
+    float roughness;                // 粗糙度因子
+    int metallicRoughnessTexture;   // 金属度-粗糙度贴图
+    int normalTexture;              // 法线贴图
+    float transmission;             // 透射率
+    float ior;                      // 折射率
 };
 
 struct HitRecord {
-    vec3 pos;
+    vec3 point;
     vec3 color;
     Material material;
     float t;
@@ -50,8 +56,8 @@ layout(std430, binding = 3) buffer IndicesBuffer {
     ivec4 indices[];
 };
 
-layout(std430, binding = 4) buffer FaceNormalsBuffer {
-    vec4 faceNormals[];
+layout(std430, binding = 4) buffer GeoNormalsBuffer {
+    vec4 geoNormals[];
 };
 
 layout(std430, binding = 5) buffer TexCoordsBuffer {
@@ -137,6 +143,70 @@ vec3 random_in_hemisphere(vec3 normal, vec2 seed) {
     return dot(in_unit, normal) > 0.0 ? in_unit : -in_unit;
 }
 
+vec3 cosine_weighted_direction(vec3 normal, vec2 seed, vec3 geoNormals) {
+    // 餘弦加權分布
+    vec2 r = random_vec2(seed);
+    float phi = 2.0 * 3.14159265359 * r.x;
+    float cosTheta = sqrt(1.0 - r.y);
+    float sinTheta = sqrt(r.y);
+
+    vec3 tangent = normalize(abs(normal.x) > 0.1 ? cross(normal, vec3(0,1,0)) : cross(normal, vec3(1,0,0)));
+    vec3 bitangent = cross(normal, tangent);
+
+    vec3 dir = cosTheta * normal +
+               sinTheta * cos(phi) * tangent +
+               sinTheta * sin(phi) * bitangent;
+    dir = normalize(dir);
+
+    return dot(dir, geoNormals) < 0.0 ? -dir : dir;
+}
+
+// GGX D項：Normal Distribution Function
+float D_GGX(float NdotH, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH2 = NdotH * NdotH;
+    float denom = NdotH2 * (a2 - 1.0) + 1.0;
+    return a2 / (3.14159265 * denom * denom);
+}
+
+// GGX G項：Geometry/Shadowing Term（Smith法）
+float G_Smith(float NdotV, float NdotL, float roughness) {
+    float a = roughness * roughness;
+    float k = (a + 1.0) * (a + 1.0) / 8.0;
+    float G1V = NdotV / (NdotV * (1.0 - k) + k);
+    float G1L = NdotL / (NdotL * (1.0 - k) + k);
+    return G1V * G1L;
+}
+
+// F項：Schlick近似的Fresnel
+vec3 F_Schlick(float VdotH, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+}
+
+// GGX Specular BRDF
+vec3 GGX_Specular(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness, vec3 F0) {
+    vec3 halfDir = normalize(viewDir + lightDir);
+    float NdotL = max(dot(normal, lightDir), 0.0);
+    float NdotV = max(dot(normal, viewDir), 0.0);
+    float NdotH = max(dot(normal, halfDir), 0.0);
+    float VdotH = max(dot(viewDir, halfDir), 0.0);
+
+    float D = D_GGX(NdotH, roughness);
+    float G = G_Smith(NdotV, NdotL, roughness);
+    vec3 F = F_Schlick(VdotH, F0);
+
+    return (D * G * F) / (4.0 * NdotL * NdotV + 0.001);
+}
+
+// 區域光源採樣函式
+vec3 sample_area_light(vec3 lightCenter, float lightRadius, vec2 seed) {
+    float z = random(seed) * 2.0 - 1.0;
+    float phi = 2.0 * 3.14159265359 * random(seed + 1.0);
+    float r = sqrt(1.0 - z * z);
+    vec3 dir = vec3(r * cos(phi), r * sin(phi), z);
+    return lightCenter + lightRadius * dir;
+}
 
 // ------------------------------------------------
 // 材質類型常數
@@ -144,6 +214,7 @@ const int TEXTURE = -1;
 const int LIGHT = 0;
 const int DIFFUSE = 1;
 const int GLASS = 2;
+const int METAL = 3;
 
 // 取得材質屬性函式
 Material getMaterial(int material) {
@@ -152,25 +223,20 @@ Material getMaterial(int material) {
         mat.type = LIGHT;
     } else if (material == DIFFUSE) {
         mat.type = DIFFUSE;
-        mat.roughness = 0.5;
+        mat.roughness = 0.8;
     } else if (material == GLASS) {
         mat.type = GLASS;
         mat.ior = 1.5;
+    } else if (material == METAL) {
+        mat.type = METAL;
+        mat.roughness = 0.2;
     } else {
         mat.type = DIFFUSE;
-        mat.roughness = 0.5;
+        mat.roughness = 0.8;
     }
     return mat;
 }
 
-vec3 refract(vec3 I, vec3 N, float eta) {
-    // 反射向量計算
-    float cosI = dot(-I, N);
-    float sinT2 = eta * eta * (1.0 - cosI * cosI);
-    if (sinT2 > 1.0) return reflect(I, N); // 全反射
-    float cosT = sqrt(1.0 - sinT2);
-    return eta * I + (eta * cosI - cosT) * N;
-}
 // ------------------------------------------------
 // 計算光線衰減函式
 float calculateAttenuation(float dist) {
@@ -181,55 +247,94 @@ float calculateAttenuation(float dist) {
     return 1.0 / (constant + linear * dist + quadratic * dist * dist);
 }
 
-// --- 新增 rayTriangleIntersect 函式 (你的版本) ---
-vec3 rayTriangleIntersect(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
+// --- 新增 intersectTriangle 函式 (你的版本) ---
+vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
     vec3 edge1 = p1 - p0;
     vec3 edge2 = p2 - p0;
     vec3 pvec = cross(ray.direction, edge2);
     float det = dot(edge1, pvec);
 
-    if (abs(det) < EPSILON) {
-        return vec3(-1.0); 
-    }
+    if (abs(det) < EPSILON) return vec3(-1.0);
 
     float invDet = 1.0 / det;
     vec3 tvec = ray.origin - p0;
     float u = dot(tvec, pvec) * invDet;
-    if (u < 0.0 || u > 1.0) {
-        return vec3(-1.0);
-    }
+    if (u < 0.0 || u > 1.0) return vec3(-1.0);
 
     vec3 qvec = cross(tvec, edge1);
     float v = dot(ray.direction, qvec) * invDet;
-    if (v < 0.0 || u + v > 1.0) {
-        return vec3(-1.0);
-    }
+    if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
 
     float t = dot(edge2, qvec) * invDet;
+
+    if (t < EPSILON) return vec3(-1.0);
     return vec3(t, u, v);
 }
 // ------------------------------------------------
 // --- 新增 hit_qbvh 函式 ---
 bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
     vec3 invD = 1.0 / ray.direction;
-    vec3 t0s = (minB - ray.origin) * invD;
-    vec3 t1s = (maxB - ray.origin) * invD;
-    vec3 tsmaller = min(t0s, t1s);
-    vec3 tbigger = max(t0s, t1s);
-    float tmin = max(max(tsmaller.x, tsmaller.y), tsmaller.z);
-    float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
-    return tmax >= max(tmin, 0.0) && tmin < tMax;
+    vec3 t0 = (minB - ray.origin) * invD;
+    vec3 t1 = (maxB - ray.origin) * invD;
+
+    vec3 tmin = min(t0, t1);
+    vec3 tmax = max(t0, t1);
+
+    float entry = max(max(tmin.x, tmin.y), tmin.z);
+    float exit  = min(min(tmax.x, tmax.y), tmax.z);
+
+    return exit >= max(entry, 0.0) && entry < tMax;
 }
 
+vec3 get_texture_color(int i, float u, float v) {
+    // 從 SSBO 中獲取當前Mesh的材質索引
+    int matIndex = materialIndices[i];
+    if (matIndex < 0) {
+        return vec3(0.5, 0.5, 0.5); // 灰色表示無材質
+    }
 
+    // 從材質索引映射到紋理索引
+    int textureIndex = matToTexMap[matIndex];
+    if (textureIndex < 0) {
+        return vec3(1.0, 0.0, 1.0); // 紫色表示沒有紋理
+    }
 
-bool hit_obvh(Ray ray, inout HitRecord rec) {
-    bool hitSomething = false;
-    vec3 tempColor;
-    vec3 tempShadingNormal, tempGeoNormal;
-    Material tempMaterial;
+    ivec4 index = indices[i];
+    vec2 uv0 = texCoords[index.x];
+    vec2 uv1 = texCoords[index.y];
+    vec2 uv2 = texCoords[index.z];
 
-    int stack[16];
+    // 內插 UV 座標並從紋理採樣
+    vec2 hitUV = (1.0 - u - v) * uv0 + u * uv1 + v * uv2;
+
+    return texture(u_textures[textureIndex], hitUV).rgb;
+}
+
+bool hit_obvh_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
+    bool doubleSided = false;
+    ivec4 index = indices[i];
+    vec3 p0 = vertices[index.x].xyz;
+    vec3 p1 = vertices[index.y].xyz;
+    vec3 p2 = vertices[index.z].xyz;
+
+    vec3 tempHitResult = intersectTriangle(ray, p0, p1, p2);
+    float t = tempHitResult.x;
+
+    bool hitSomething = t < tMax && (doubleSided || t > EPSILON);
+    if (hitSomething) {
+        tMax = t;
+        hitResult = tempHitResult;
+        return true;
+    } else {
+        return false;
+    }
+}
+
+int hit_obvh(Ray ray, out vec3 hitResult) {
+    float tMax = 1e9;
+    int hitIdx = -1;
+
+    int stack[32];
     int stackPtr = 0;
     stack[stackPtr++] = 0; // root node
 
@@ -237,73 +342,26 @@ bool hit_obvh(Ray ray, inout HitRecord rec) {
         int nodeIdx = stack[--stackPtr];
         OBVHNode node = obvhNodes[nodeIdx];
 
-        // 1. AABB 測試，提前剪裁
-        if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, rec.t)) {
+        if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, tMax)) {
             continue;
         }
 
-        // 2. 判斷是葉節點還是內部節點 (假設 info.w > 0 代表葉節點)
         bool isLeaf = (node.info.w > 0);
 
         if (isLeaf) {
             // 處理葉節點中的所有三角形
             int start = node.info.z;
             int count = node.info.w;
-            for (int i = start; i < start + count; i++) {
-                ivec4 index = indices[i];
-                vec3 p0 = vertices[index.x].xyz;
-                vec3 p1 = vertices[index.y].xyz;
-                vec3 p2 = vertices[index.z].xyz;
-                int material_id = index.w;
-                vec3 normal = faceNormals[i].xyz;
-
-                vec3 intersection = rayTriangleIntersect(ray, p0, p1, p2);
-                float t = intersection.x;
-                float u = intersection.y;
-                float v = intersection.z;
-
-                // 如果找到更近的擊中點
-                if (t > 0.0 && t < rec.t) {
-                    hitSomething = true;
-                    rec.t = t;
-
-                    tempMaterial = getMaterial(material_id);
-                    
-                    // --- 法線計算 ---
-                    // 1. 幾何法線 (從面法線緩衝區讀取)
-                    tempGeoNormal = faceNormals[i].xyz;
-
-                    // 2. 着色法線 (通過插值頂點法線得到)
-                    vec3 n0 = vertexNormals[index.x].xyz;
-                    vec3 n1 = vertexNormals[index.y].xyz;
-                    vec3 n2 = vertexNormals[index.z].xyz;
-                    // 使用重心座標 (1-u-v, u, v) 進行插值
-                    tempShadingNormal = normalize((1.0 - u - v) * n0 + u * n1 + v * n2);
-
-                    // 根據材質類型計算顏色
-                    if (material_id == LIGHT) {
-                        tempColor = vec3(10.0); // 光源發光顏色
-                    } else if (material_id == TEXTURE) {
-                        int matIndex = materialIndices[i];
-                        int textureIndex = (matIndex >= 0) ? matToTexMap[matIndex] : -1;
-
-                        if (textureIndex >= 0) {
-                            vec2 uv0 = texCoords[index.x];
-                            vec2 uv1 = texCoords[index.y];
-                            vec2 uv2 = texCoords[index.z];
-                            vec2 hitUV = (1.0 - u - v) * uv0 + u * uv1 + v * uv2;
-                            tempColor = texture(u_textures[textureIndex], hitUV).rgb;
-                        } else {
-                            tempColor = vec3(0.8, 0.8, 0.8); // 有材質但無紋理，顯示灰色
-                        }
-                    } else { // DIFFUSE, GLASS, 或其他無紋理的材質
-                        tempColor = vec3(0.7, 0.7, 0.7); // 預設基礎顏色
-                    }
+            for (int i = start; i < start + count; i++) 
+            {   
+                vec3 tempHitResult;
+                if (hit_obvh_leaf(ray, i, tMax, tempHitResult)) 
+                {
+                    hitIdx = i;
+                    hitResult = tempHitResult;
                 }
             }
         } else {
-            // 處理內部節點，將子節點壓入堆疊
-            // 這裡的 OBVH 是 8-ary tree (八叉樹)
             ivec4 childrenA = node.childrenA;
             ivec4 childrenB = node.childrenB;
             if (childrenA.x >= 0) stack[stackPtr++] = childrenA.x;
@@ -316,53 +374,53 @@ bool hit_obvh(Ray ray, inout HitRecord rec) {
             if (childrenB.w >= 0) stack[stackPtr++] = childrenB.w;
         }
     }
-
-    // 如果整個遍歷過程中有找到擊中點，更新最終的 HitRecord
-    if (hitSomething) {
-        rec.pos = ray.origin + rec.t * ray.direction;
-        rec.shadingNormal = tempShadingNormal; // 儲存着色法線
-        rec.geoNormal = tempGeoNormal;         // 儲存幾何法線
-        rec.material = tempMaterial;
-        rec.color = tempColor;
-        return true;
-    }
-    
-    return false;
+    return hitIdx;
 }
 
-bool hit_world(Ray ray, out HitRecord rec) {
-    rec.t = 1e9;
-    bool hitSomething = false;
-    vec3 tempColor = vec3(0.0);
-    vec3 tempNormal = vec3(0.0);
-    Material tempMaterial;
+bool hit_world(Ray ray, out HitRecord hit) {
+    vec3 hitResult;
+    int hitIdx = hit_obvh(ray, hitResult);
+    if (hitIdx == -1) return false;
 
-    HitRecord triRec;
-    triRec.t = rec.t;
-    if (hit_obvh(ray, triRec)) {
-        rec = triRec; // 直接複製整個 HitRecord
+    ivec4 index = indices[hitIdx];
+    vec3 p0 = vertices[index.x].xyz;
+    vec3 p1 = vertices[index.y].xyz;
+    vec3 p2 = vertices[index.z].xyz;
+    
+    float t = hitResult.x;
+    float u = hitResult.y;
+    float v = hitResult.z;
+
+    hit.t = t;
+    hit.point = ray.origin + hit.t * ray.direction;
+
+    vec3 n0 = vertexNormals[index.x].xyz;
+    vec3 n1 = vertexNormals[index.y].xyz;
+    vec3 n2 = vertexNormals[index.z].xyz;
+
+    vec3 geoNormals = geoNormals[hitIdx].xyz;
+    vec3 normal = normalize((1.0 - u - v) * n0 + u * n1 + v * n2);
+    bool geo_frontFace = dot(ray.direction, geoNormals) < 0.0;
+    bool frontFace = dot(ray.direction, normal) < 0.0;
+
+    hit.geoNormal = geo_frontFace ? geoNormals : -geoNormals;
+    hit.shadingNormal = frontFace ? normal : -normal;
+
+    int material = index.w;
+    hit.material = getMaterial(material);
+    if (material == LIGHT) 
+    {
+        hit.color = vec3(15.0); // 光源顏色為白色
         return true;
-
-        // if (triRec.t < rec.t) {
-        //     rec.t = triRec.t;
-        //     hitSomething = true;
-        //     tempNormal = triRec.normal;
-        //     tempColor = triRec.color;
-        //     tempMaterial = triRec.material;
-        // 
-        // }
     }
-    return false;
-    // 
-    // if (!hitSomething) {
-    //     return false;
-    // }
-    // 
-    // rec.pos = ray.origin + rec.t * ray.direction;
-    // rec.normal = tempNormal;
-    // rec.color = tempColor;
-    // rec.material = tempMaterial;
-    // return true;
+
+    if (material == TEXTURE) 
+    {
+        // 從紋理採樣顏色
+        hit.color = get_texture_color(hitIdx, u, v);
+        return true;
+    }
+    return true;
 }
 
 vec3 getRayDir(vec2 pixel)
@@ -374,8 +432,62 @@ vec3 getRayDir(vec2 pixel)
     eye /= eye.w;                       // 齊次坐標歸一化
     return normalize(eye.xyz - camera.position);
 }
+
+vec3 trace_ray(Ray ray, float sampleIndex) {
+    vec3 attenuation = WHITE;
+    vec3 color = vec3(0.0);
+
+    for (int depth = 0; depth < max_depth; depth++) {
+        HitRecord hit;
+        if (!hit_world(ray, hit)) {
+            // // 背景色
+            // float a = 0.5 * (ray.direction.y + 1.0);
+            // vec3 sky = mix(WHITE, vec3(0.5, 0.7, 1.0), a);
+            // color += attenuation * sky;
+            color += attenuation;
+            break;
+        }
+        Material material = hit.material;
+
+        if (material.type == LIGHT) {
+            float lightAttenuation = calculateAttenuation(hit.t);
+            color += attenuation * hit.color * lightAttenuation;
+            break;
+        }
+
+        // 玻璃
+        if (material.type == GLASS) {
+            float ior = material.ior;
+            float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
+            ray.direction = refract(ray.direction, hit.shadingNormal, eta);
+            attenuation *= max(vec3(0.8), hit.color) * 0.98;
+        } else {
+            // 漫反射 + 高光
+            vec2 seed = hit.point.xy + float(depth) + sampleIndex;
+            vec3 viewDir = -ray.direction;
+            vec3 halfDir = cosine_weighted_direction(hit.geoNormal, seed, hit.geoNormal);
+            // halfDir = dot(halfDir, hit.geoNormal) < 0.0 ? -halfDir : halfDir;
+
+            float specularChance = 0.05;
+            if (random(seed + 2.0) < specularChance) {
+                // 高光反射
+                vec3 specularDir = reflect(viewDir, halfDir);
+                vec3 ggx = GGX_Specular(hit.shadingNormal, viewDir, specularDir, material.roughness, vec3(0.04));
+                ray.direction = specularDir;
+                attenuation *= ggx * hit.color;
+            } else {
+                // 漫反射
+                ray.direction = halfDir;
+                attenuation *= hit.color * material.roughness;
+            }
+        }
+        ray.origin = hit.point;
+    }
+    return color;
+}
+
 // ----------------------------------------------------
-const int SAMPLES_PER_PIXEL = 9;
+const int SAMPLES_PER_PIXEL = 16;
 void main()
 {
     // 取得像素座標
@@ -385,81 +497,13 @@ void main()
     
     vec3 color = vec3(0.0);
     
-    for (int s = 0; s < SAMPLES_PER_PIXEL; ++s) {
-        // 隨機偏移像素座標
+    for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
         vec2 jitter = random_vec2(pixel + float(s)) - 0.5;
-        vec2 samplePixel = pixel + jitter;
-
         Ray ray;
         ray.origin = camera.position;
-        ray.direction = getRayDir(samplePixel);
-
-        vec3 attenuation = WHITE;
-        float t = 0.0;
-        for (int depth = 0; depth < 10; depth++) {
-            HitRecord rec;
-            if (!hit_world(ray, rec)) {
-                color += attenuation;
-                break;
-            }
-            t += rec.t;
-
-            // 確保着色法線和幾何法線都朝向光線來源方向，防止 "terminator problem"
-            vec3 outward_geo_normal = faceforward(rec.geoNormal, ray.direction, rec.geoNormal);
-            vec3 shading_normal = faceforward(rec.shadingNormal, ray.direction, rec.shadingNormal);
-
-            // 如果修正後的着色法線與幾何法線方向不一致（不在同一個半球），則需要進一步修正。
-            // 這裡我們採用文章中的思想，確保着色法線位於幾何法線定義的半球內。
-            if (dot(shading_normal, outward_geo_normal) < 0.0) {
-                // 將 shading_normal 翻轉到 outward_geo_normal 的半球
-                shading_normal = reflect(shading_normal, outward_geo_normal);
-            }
-
-             // --- 材質處理 ---
-            if (rec.material.type == LIGHT) {
-                float lightAttenuation = calculateAttenuation(t);
-                color += attenuation * rec.color * lightAttenuation;
-                break;
-            } 
-            
-            vec3 next_direction;
-            if (rec.material.type == GLASS) {
-                float ior = rec.material.ior;
-                // 判斷是進入還是離開物體，應基於幾何法線
-                bool entering = dot(ray.direction, outward_geo_normal) < 0.0;
-                float eta = entering ? (1.0 / ior) : ior;
-                vec3 N = entering ? shading_normal : -shading_normal;
-                
-                next_direction = refract(ray.direction, N, eta);
-                // 處理全反射
-                if (dot(next_direction, next_direction) == 0.0) {
-                    next_direction = reflect(ray.direction, N);
-                }
-                attenuation *= max(vec3(0.8), rec.color) * 0.98;
-
-            } else { // DIFFUSE / TEXTURE
-                vec3 diffuseDir = random_in_hemisphere(shading_normal, rec.pos.xy + float(depth) + float(s));
-                vec3 specularDir = reflect(ray.direction, shading_normal);
-                next_direction = normalize(mix(diffuseDir, specularDir, rec.material.roughness));
-                attenuation *= rec.color * 0.8;
-            }
-            
-            // --- 【修改 3.2】BSDF 半球一致性修正 ---
-            // 根據文章 15.2.2，確保新的反射/折射方向位於幾何法線的正半球
-            if (dot(next_direction, outward_geo_normal) < EPSILON) {
-                // 如果方向“鑽入”了物體表面，將其沿幾何法線反射回正確的半球
-                // 這直接對應文章中的 r = r - 2 * r.dot(geo_normal) * geo_normal
-                // reflect(I, N) = I - 2.0 * dot(I, N) * N
-                // 我們需要的是將其翻轉，所以是 -reflect(next_direction, outward_geo_normal)
-                // 或者更直接地：
-                next_direction = next_direction - 2.0 * dot(next_direction, outward_geo_normal) * outward_geo_normal;
-            }
-
-            ray.direction = next_direction;
-            ray.origin = rec.pos + ray.direction * EPSILON;
-        }
+        ray.direction = getRayDir(pixel + jitter);
+        color += trace_ray(ray, float(s));
     }
-    color /= float(SAMPLES_PER_PIXEL);
-    imageStore(screenTexture, ivec2(pixel), vec4(pow(color, vec3(1.0/2.2)), 1.0));
-
+    color /= float(SAMPLES_PER_PIXEL); // 平均多重採樣結果
+    imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
 }
