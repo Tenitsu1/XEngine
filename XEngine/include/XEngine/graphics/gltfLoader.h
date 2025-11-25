@@ -48,7 +48,6 @@ namespace XEngine::graphics
 		std::pair<GLuint, std::map<int, GLuint>> bindModel(tinygltf::Model& model);
 		void dbgModel(tinygltf::Model& model);
 
-		inline std::vector<Triangle>& getTriangles() { return mTriangles; }
 		inline Mesh& getMesh() { return mMesh; }
 		inline const std::vector<GLuint>& getTextures() const { return mTextures; }
 
@@ -57,10 +56,7 @@ namespace XEngine::graphics
 		void printMaterialTextureMapping(const tinygltf::Model& model);
 
 	private:
-		std::vector<Triangle> mTriangles;
 		Mesh mMesh;
-		void extractTriangles(tinygltf::Model& model);
-		void extractNodeTriangles(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform);
 		void extractMesh(tinygltf::Model& model);
 		void extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform, unsigned int& vertex_offset);
 

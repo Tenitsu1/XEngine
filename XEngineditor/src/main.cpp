@@ -33,6 +33,7 @@ private:
 	GLuint mIndicesSSBO = 0;  // indices SSBO-ID
 	GLuint mNormalsSSBO = 0;  // normal  SSBO-ID
 	GLuint mOBVHSSBO = 0;     // OBVH    SSBO-ID
+	GLuint mFaceNormalsSSBO = 0;
 	GLuint mTexCoordsSSBO = 0;
 	GLuint mMaterialIndicesSSBO = 0;
 	GLuint mMatToTexMapSSBO = 0;
@@ -89,7 +90,7 @@ public:
 		// 加入法線（朝下）
 		glm::vec3 normal(0.0f, -1.0f, 0.0f);
 		for (int i = 0; i < 4; ++i)
-			Mesh.normals.push_back(glm::vec4(normal, 0.0f));
+			Mesh.faceNormals.push_back(glm::vec4(normal, 0.0f));
 
 		// 加入索引（兩個三角形）
 		int baseIdx = (int)Mesh.vertices.size() - 4;
@@ -136,10 +137,11 @@ public:
 
 		if (triangleCount > 0)
 		{
-			mComputeShader->createSSBO(mOBVHSSBO,     (uint32_t)obvhNodes.size()     * sizeof(OBVH::OBVHNode), obvhNodes.data(),     1);
-			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4),      Mesh.vertices.data(), 2);	
-			mComputeShader->createSSBO(mIndicesSSBO,  (uint32_t)Mesh.indices.size()  * sizeof(glm::ivec4),     Mesh.indices.data(),  3);
-			mComputeShader->createSSBO(mNormalsSSBO,  (uint32_t)Mesh.normals.size()  * sizeof(glm::vec4),      Mesh.normals.data(),  4);
+			mComputeShader->createSSBO(mOBVHSSBO,         (uint32_t)obvhNodes.size()         * sizeof(OBVH::OBVHNode), obvhNodes.data(),         1);
+			mComputeShader->createSSBO(mVerticesSSBO,     (uint32_t)Mesh.vertices.size()     * sizeof(glm::vec4),      Mesh.vertices.data(),     2);	
+			mComputeShader->createSSBO(mIndicesSSBO,      (uint32_t)Mesh.indices.size()      * sizeof(glm::ivec4),     Mesh.indices.data(),      3);
+			mComputeShader->createSSBO(mFaceNormalsSSBO,  (uint32_t)Mesh.faceNormals.size()  * sizeof(glm::vec4),      Mesh.faceNormals.data(),  4);
+			mComputeShader->createSSBO(mNormalsSSBO,      (uint32_t)Mesh.normals.size()      * sizeof(glm::vec4),      Mesh.normals.data(),      9);
 
 			if (!Mesh.texCoords.empty()) 
 			{

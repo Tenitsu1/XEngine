@@ -6,78 +6,6 @@
 
 
 namespace XEngine::OBVH {
-    std::vector<OBVHNode> buildOBVH(std::vector<Triangle>& triangles) {
-        std::vector<OBVHNode> nodes;
-
-        std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
-            int count = end - start;
-            OBVHNode node;
-            node.childrenA = glm::ivec4(-1);
-            node.childrenB = glm::ivec4(-1);
-            node.info = glm::ivec4(-1, -1, start, count);
-            Bounds::Bound3 aabb;
-
-            // 計算 AABB
-            for (int i = start; i < end; i++) {
-                Triangle triangle = triangles[i];
-                Bounds::Bound3 TriangleAABB(
-					triangle.v1,
-					triangle.v2,
-					triangle.v3
-                );
-                aabb = Bounds::Union(aabb, TriangleAABB);
-            }
-            node.aabbMin = aabb.min;
-            node.aabbMax = aabb.max;
-
-            float aabbVolume = aabb.VolumeWithMin(1.0f);
-
-            int currentIndex = (int)nodes.size();
-            nodes.push_back(node);
-
-            if (count <= MAX_LEAF_TRIANGLES || depth >= MAX_DEPTH || aabbVolume < MIN_AABB_VOLUME)
-                return currentIndex; // 葉節點
-
-            // 分配到8個象限
-            std::vector<std::vector<int>> childLists(8);
-            for (int i = start; i < end; i++) {
-                Triangle triangle = triangles[i];
-                int oct = aabb.octant((triangle.v1 + triangle.v2 + triangle.v3) / 3.0f);
-                childLists[oct].push_back(i);
-            }
-
-            int childEnds[8];
-            {
-                std::vector<Triangle> tmp(triangles.begin() + start, triangles.begin() + end);
-                int write = start;
-                for (int i = 0; i < 8; i++) {
-                    for (int origIdx : childLists[i]) {
-                        triangles[write++] = std::move(tmp[origIdx - start]);
-                    }
-                    childEnds[i] = write;
-                }
-            }
-
-            {   // 建立子節點
-                int childStart = start;
-                for (int i = 0; i < 8; i++) {
-                    int childEnd = childEnds[i];
-                    if (childStart < childEnd) {
-                        int childIdx = buildNode(childStart, childEnd, depth + 1);
-                        if (i < 4) node.childrenA[i] = childIdx;
-                        else       node.childrenB[i - 4] = childIdx;
-                        childStart = childEnd;
-                    }
-                }
-            }
-            nodes[currentIndex] = node;
-            return currentIndex;
-            };
-
-        buildNode(0, (int)triangles.size(), 0);
-        return nodes;
-    }
-
     std::vector<OBVHNode> buildOBVH(Mesh& mesh) {
         std::vector<OBVHNode> nodes;
 
@@ -122,7 +50,7 @@ namespace XEngine::OBVH {
             {
                 // 複製當前範圍的 indices, normals, 【和 materialIndices】
                 std::vector<glm::ivec4> tmpIndices(mesh.indices.begin() + start, mesh.indices.begin() + end);
-                std::vector<glm::vec4> tmpNormals(mesh.normals.begin() + start, mesh.normals.begin() + end);
+                std::vector<glm::vec4> tmpNormals(mesh.faceNormals.begin() + start, mesh.faceNormals.begin() + end);
 
                 // 【新增】複製 materialIndices
                 std::vector<int> tmpMaterialIndices(mesh.materialIndices.begin() + start, mesh.materialIndices.begin() + end);
@@ -132,7 +60,7 @@ namespace XEngine::OBVH {
                     for (int origIdx : childLists[i]) {
                         // 同步寫回所有三個向量
                         mesh.indices[write] = std::move(tmpIndices[origIdx - start]);
-                        mesh.normals[write] = std::move(tmpNormals[origIdx - start]);
+                        mesh.faceNormals[write] = std::move(tmpNormals[origIdx - start]);
 
                         // 【新增】同步寫回 materialIndices
                         mesh.materialIndices[write] = tmpMaterialIndices[origIdx - start]; // int 不需要 move

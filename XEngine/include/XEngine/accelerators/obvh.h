@@ -25,7 +25,6 @@ namespace XEngine::OBVH {
         glm::ivec4 info;      // z=start, w=count
     };
 
-    std::vector<OBVHNode> buildOBVH(std::vector<Triangle>& triangles);
     std::vector<OBVHNode> buildOBVH(Mesh& mesh);
 }
 #endif
