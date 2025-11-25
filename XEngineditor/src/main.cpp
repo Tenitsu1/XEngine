@@ -198,8 +198,8 @@ public:
 
 		// Camera Setup
 		// camera.position = glm::vec3(-60.f, 90.0f, 80.f);
-		camera.position = glm::vec3(6.f, 4.0f, 2.f);
-		camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
+		camera.position = glm::vec3(8.f, 4.0f, 0.2f);
+		camera.lookat = glm::vec3(-1.0f, 0.0f, 0.0f);
 		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
 		camera.fov = 45.0f;
 
@@ -209,7 +209,7 @@ public:
 	}
 	void shutdown() override
 	{
-
+		
 	}
 	void update() override
 	{
@@ -231,7 +231,7 @@ public:
 		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTimeMax; }
 		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTimeMax; }
 
-		float xkeyOffset = input::Mouse::dX();
+		/*float xkeyOffset = input::Mouse::dX();
 		float ykeyOffset = input::Mouse::dY();
 		float sensitivity = 0.1f;
 		xkeyOffset *= sensitivity;
@@ -256,7 +256,7 @@ public:
 
 		camera.direction.x = cos(glm::radians(camera.pitch)) * cos(glm::radians(camera.yaw)); 
 		camera.direction.y = sin(glm::radians(camera.pitch));
-		camera.direction.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));
+		camera.direction.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));*/
 
 		float fov = glm::radians(camera.fov);
 		float aspect = (float)windowSize.x / (float)windowSize.y;
@@ -353,6 +353,14 @@ public:
 					ImVec2(0, 1),
 					ImVec2(1, 0));
 		}
+		ImGui::End();
+
+		ImGui::Begin("My Window");
+
+		if (ImGui::Button("Click Me")) {
+			mShader->exportPNG("C:\\Users\\User\\Downloads\\output.png", getWindowProperties().width, getWindowProperties().height);
+		}
+
 		ImGui::End();
 	}
 

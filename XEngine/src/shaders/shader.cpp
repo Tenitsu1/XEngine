@@ -4,6 +4,7 @@
 #include "glad/glad.h"
 
 #include "external/glm/gtc/type_ptr.hpp"
+#include "external/stb/stb_image_write.h"
 
 
 namespace XEngine
@@ -249,5 +250,28 @@ namespace XEngine
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
+
+	void Shader::exportPNG(const std::string& path, int width, int height)
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+		std::vector<unsigned char> pixels(width * height * 4);
+
+		glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		stbi_flip_vertically_on_write(true);
+
+		int result = stbi_write_png(path.c_str(), width, height, 4, pixels.data(), width * 4);
+
+		if (result) {
+			XENGINE_INFO("Successfully saved PNG to: {}", path);
+		}
+		else {
+			XENGINE_ERROR("Failed to save PNG to: {}", path);
+		}
 	}
 }

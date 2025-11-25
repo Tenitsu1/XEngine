@@ -42,6 +42,7 @@ namespace XEngine
 
 		void bindTexture(uint32_t texture, uint32_t textureUnit);
 		void createTexture(int width, int height);
+		void exportPNG(const std::string& path, int width, int height);
 
 		inline uint32_t getProgramId() const { return mProgramId; }
 		inline uint32_t getTexture() const { return mTexture; }

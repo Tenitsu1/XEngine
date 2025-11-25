@@ -70,7 +70,7 @@ namespace XEngine::core
 
 		SDL_WarpMouseInWindow(mWindow,500,500);
 
-		SDL_SetWindowRelativeMouseMode(mWindow, true);
+		//SDL_SetWindowRelativeMouseMode(mWindow, true);
 		mImguiwindow.create(props.imguiProps);
 		return true;
 
