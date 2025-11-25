@@ -96,7 +96,7 @@ public:
 		Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 1, baseIdx + 2, 0));
 		Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 2, baseIdx + 3, 0));
 
-		// 加入材質索引（假設 LIGHT 材質在 material list 的最後一個）
+		// 加入材質索引
 		int lightMatIdx = 0; // 或你已知的 LIGHT 材質 index
 		Mesh.materialIndices.push_back(lightMatIdx);
 		Mesh.materialIndices.push_back(lightMatIdx);

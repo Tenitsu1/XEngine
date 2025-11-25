@@ -60,6 +60,10 @@ layout(std430, binding = 4) buffer NormalsBuffer {
     vec4 normals[];
 };
 
+// layout(std430, binding = 9) buffer GeoNormalsBuffer {
+//     vec4 geo_normals[];
+// };
+
 layout(std430, binding = 5) buffer TexCoordsBuffer {
     vec2 texCoords[];
 };
@@ -136,7 +140,7 @@ vec3 random_in_hemisphere(vec3 normal, vec2 seed) {
     return dot(in_unit, normal) > 0.0 ? in_unit : -in_unit;
 }
 
-vec3 cosine_weighted_direction(vec3 normal, vec2 seed) {
+vec3 cosine_weighted_direction(vec3 normal, vec2 seed, vec3 geo_normal) {
     // 餘弦加權分布
     vec2 r = random_vec2(seed);
     float phi = 2.0 * 3.14159265359 * r.x;
@@ -151,7 +155,7 @@ vec3 cosine_weighted_direction(vec3 normal, vec2 seed) {
                sinTheta * sin(phi) * bitangent;
     dir = normalize(dir);
 
-    return (dot(dir, normal) < 0.0) ? -dir : dir;
+    return dot(dir, geo_normal) < 0.0 ? -dir : dir;
 }
 
 // GGX D項：Normal Distribution Function
@@ -259,6 +263,8 @@ vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
     if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
 
     float t = dot(edge2, qvec) * invDet;
+
+    if (t < EPSILON) return vec3(-1.0);
     return vec3(t, u, v);
 }
 // ------------------------------------------------
@@ -301,24 +307,135 @@ vec3 get_texture_color(int i, float u, float v) {
     return texture(u_textures[textureIndex], hitUV).rgb;
 }
 
-bool hit_obvh_leaf(Ray ray, int i, inout HitRecord hit) {
+bool hit_obvh_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
     bool doubleSided = false;
     ivec4 index = indices[i];
     vec3 p0 = vertices[index.x].xyz;
     vec3 p1 = vertices[index.y].xyz;
     vec3 p2 = vertices[index.z].xyz;
 
-    vec3 hitResult = intersectTriangle(ray, p0, p1, p2);
+    vec3 tempHitResult = intersectTriangle(ray, p0, p1, p2);
+    float t = tempHitResult.x;
+
+    bool hitSomething = t < tMax && (doubleSided || t > EPSILON);
+    if (hitSomething) {
+        tMax = t;
+        hitResult = tempHitResult;
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// int hit_obvh(Ray ray, out vec3 hitResult) {
+//     float tMax = 1e9;
+//     int hitIdx = -1;
+
+//     int stack[32];
+//     int stackPtr = 0;
+//     stack[stackPtr++] = 0; // root node
+
+//     while (stackPtr > 0) 
+//     {
+//         int nodeIdx = stack[--stackPtr];
+//         OBVHNode node = obvhNodes[nodeIdx];
+//         if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, tMax)) continue;
+
+//         ivec4 childrenA = node.childrenA;
+//         ivec4 childrenB = node.childrenB;
+//         bool isLeaf = all(lessThan(childrenA, ivec4(0))) && all(lessThan(childrenB, ivec4(0)));
+
+//         if (isLeaf)
+//         {
+//             int start = node.info.z;
+//             int count = node.info.w;
+//             for (int i = start; i < start + count; i++) 
+//             {   
+//                 vec3 tempHitResult;
+//                 if (hit_obvh_leaf(ray, i, tMax, tempHitResult)) 
+//                 {
+//                     hitIdx = i;
+//                     hitResult = tempHitResult;
+//                 }
+//             }
+//         }
+//         else
+//         {
+//             for (int i = 0; i < 4; i++) {
+//                 int childA = childrenA[i];
+//                 int childB = childrenB[i];
+//                 if (childA >= 0) stack[stackPtr++] = childA;
+//                 if (childB >= 0) stack[stackPtr++] = childB;
+//             }
+//         } 
+//     }
+//     return hitIdx;
+// }
+
+int hit_obvh(Ray ray, out vec3 hitResult) {
+    float tMax = 1e9;
+    int hitIdx = -1;
+
+    int stack[32];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0; // root node
+
+    while (stackPtr > 0) {
+        int nodeIdx = stack[--stackPtr];
+        OBVHNode node = obvhNodes[nodeIdx];
+
+        if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, tMax)) {
+            continue;
+        }
+
+        bool isLeaf = (node.info.w > 0);
+
+        if (isLeaf) {
+            // 處理葉節點中的所有三角形
+            int start = node.info.z;
+            int count = node.info.w;
+            for (int i = start; i < start + count; i++) 
+            {   
+                vec3 tempHitResult;
+                if (hit_obvh_leaf(ray, i, tMax, tempHitResult)) 
+                {
+                    hitIdx = i;
+                    hitResult = tempHitResult;
+                }
+            }
+        } else {
+            ivec4 childrenA = node.childrenA;
+            ivec4 childrenB = node.childrenB;
+            if (childrenA.x >= 0) stack[stackPtr++] = childrenA.x;
+            if (childrenA.y >= 0) stack[stackPtr++] = childrenA.y;
+            if (childrenA.z >= 0) stack[stackPtr++] = childrenA.z;
+            if (childrenA.w >= 0) stack[stackPtr++] = childrenA.w;
+            if (childrenB.x >= 0) stack[stackPtr++] = childrenB.x;
+            if (childrenB.y >= 0) stack[stackPtr++] = childrenB.y;
+            if (childrenB.z >= 0) stack[stackPtr++] = childrenB.z;
+            if (childrenB.w >= 0) stack[stackPtr++] = childrenB.w;
+        }
+    }
+    return hitIdx;
+}
+
+bool hit_world(Ray ray, out HitRecord hit) {
+    vec3 hitResult;
+    int hitIdx = hit_obvh(ray, hitResult);
+    if (hitIdx == -1) return false;
+
+    ivec4 index = indices[hitIdx];
+    vec3 p0 = vertices[index.x].xyz;
+    vec3 p1 = vertices[index.y].xyz;
+    vec3 p2 = vertices[index.z].xyz;
+    
     float t = hitResult.x;
     float u = hitResult.y;
     float v = hitResult.z;
 
-    bool hitSomething = t < hit.t && (doubleSided || t > EPSILON);
-    if (!hitSomething) return false;
+    hit.t = t;
+    hit.point = ray.origin + hit.t * ray.direction;
 
-    // int material = GLASS;
-    // int material = DIFFUSE;
-    int material = index.w;
     vec3 n0 = normals[index.x].xyz;
     vec3 n1 = normals[index.y].xyz;
     vec3 n2 = normals[index.z].xyz;
@@ -327,12 +444,11 @@ bool hit_obvh_leaf(Ray ray, int i, inout HitRecord hit) {
     vec3 normal = normalize((1.0 - u - v) * n0 + u * n1 + v * n2);
     bool geo_frontFace = dot(ray.direction, geo_normal) < 0.0;
     bool frontFace = dot(ray.direction, normal) < 0.0;
-    
 
-    hit.t = t;
     hit.geo_normal = geo_frontFace ? geo_normal : -geo_normal;
     hit.normal = frontFace ? normal : -normal;
-    // hit.normal = normalize(n2);
+
+    int material = index.w;
     hit.material = getMaterial(material);
     if (material == LIGHT) 
     {
@@ -343,70 +459,9 @@ bool hit_obvh_leaf(Ray ray, int i, inout HitRecord hit) {
     if (material == TEXTURE) 
     {
         // 從紋理採樣顏色
-        hit.color = get_texture_color(i, u, v);
+        hit.color = get_texture_color(hitIdx, u, v);
         return true;
     }
-}
-
-bool hit_obvh(Ray ray, inout HitRecord hit) {
-    HitRecord rec;
-    rec.t = hit.t;
-
-    int stack[256];
-    int stackPtr = 0;
-    stack[stackPtr++] = 0; // root node
-
-    bool hitSomething = false;
-    while (stackPtr > 0) 
-    {
-        int nodeIdx = stack[--stackPtr];
-        OBVHNode node = obvhNodes[nodeIdx];
-        if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, rec.t)) continue;
-
-        ivec4 childrenA = node.childrenA;
-        ivec4 childrenB = node.childrenB;
-        bool isLeaf = all(lessThan(childrenA, ivec4(0))) && all(lessThan(childrenB, ivec4(0)));
-
-        if (isLeaf)
-        {
-            int start = node.info.z;
-            int count = node.info.w;
-            for (int i = start; i < start + count; i++) 
-            {  
-                HitRecord tempRec;
-                tempRec.t = rec.t;
-                if (hit_obvh_leaf(ray, i, tempRec)) 
-                {
-                    hitSomething = true;
-                    rec = tempRec;
-                }
-            }
-        }
-        else
-        {
-            for (int i = 0; i < 4; i++) {
-                int childA = childrenA[i];
-                int childB = childrenB[i];
-                if (childA >= 0) stack[stackPtr++] = childA;
-                if (childB >= 0) stack[stackPtr++] = childB;
-            }
-        } 
-    }
-
-    if (!hitSomething) return false;
-
-    hit = rec;
-    return true;
-}
-
-bool hit_world(Ray ray, out HitRecord hit) {
-    HitRecord rec;
-
-    rec.t = 1e9;
-    if (!hit_obvh(ray, rec)) return false;
-
-    hit = rec;
-    hit.point = ray.origin + hit.t * ray.direction;
     return true;
 }
 
@@ -452,7 +507,8 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
             // 漫反射 + 高光
             vec2 seed = hit.point.xy + float(depth) + sampleIndex;
             vec3 viewDir = -ray.direction;
-            vec3 halfDir = cosine_weighted_direction(hit.geo_normal, seed);
+            vec3 halfDir = cosine_weighted_direction(hit.geo_normal, seed, hit.geo_normal);
+            // halfDir = dot(halfDir, hit.geo_normal) < 0.0 ? -halfDir : halfDir;
 
             float specularChance = 0.05;
             if (random(seed + 2.0) < specularChance) {
@@ -473,7 +529,7 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
 }
 
 // ----------------------------------------------------
-const int SAMPLES_PER_PIXEL = 4;
+const int SAMPLES_PER_PIXEL = 16;
 void main()
 {
     // 取得像素座標
@@ -491,6 +547,5 @@ void main()
         color += trace_ray(ray, float(s));
     }
     color /= float(SAMPLES_PER_PIXEL); // 平均多重採樣結果
-    imageStore(screenTexture, ivec2(pixel), vec4(pow(color,vec3(1.0/2.2)), 1.0));
-    // imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
+    imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
 }
