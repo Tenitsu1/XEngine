@@ -18,6 +18,7 @@ namespace XEngine::Bounds {
         Bound3 childOctant(int octant) const;
         glm::vec3 Diagonal() const;
         glm::vec3 Center() const;
+        float Bound3::SurfaceArea() const;
         int octant(const glm::vec3& point) const;
         int MaximumExtent() const;
         float Volume() const;

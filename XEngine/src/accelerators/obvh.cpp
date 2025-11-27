@@ -3,6 +3,7 @@
 #include <functional>
 #include <algorithm>
 #include "graphics/structs.hpp"
+#include "XEngine/log.h"
 
 
 namespace XEngine::OBVH {
@@ -10,84 +11,101 @@ namespace XEngine::OBVH {
         std::vector<OBVHNode> nodes;
 
         std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
-            int count = end - start;
+            const int count = end - start;
+            std::vector<Bounds::Bound3> childAABBs(count);
             OBVHNode node;
-            node.childrenA = glm::ivec4(-1);
-            node.childrenB = glm::ivec4(-1);
+            node.top = glm::ivec4(-1);
+            node.bottom = glm::ivec4(-1);
             node.info = glm::ivec4(-1, -1, start, count);
             Bounds::Bound3 aabb;
 
             // 計算 AABB
-            for (int i = start; i < end; i++) {
-                glm::ivec4 face = mesh.indices[i];
-                Bounds::Bound3 TriangleAABB(
+            for (int i = start, j = 0; j < count; i++, j++) {
+                const glm::ivec4& face = mesh.indices[i];
+                const Bounds::Bound3 TriangleAABB(
                     mesh.vertices[face.x],
                     mesh.vertices[face.y],
                     mesh.vertices[face.z]
                 );
-                aabb = Bounds::Union(aabb, TriangleAABB);
+                childAABBs[j] = TriangleAABB;
+                aabb = aabb.Union(TriangleAABB);
             }
             node.aabbMin = aabb.min;
             node.aabbMax = aabb.max;
 
-            float aabbVolume = aabb.VolumeWithMin(1.0f);
-
-            int currentIndex = (int)nodes.size();
+            const int currentIndex = (int)nodes.size();
             nodes.push_back(node);
 
-            if (count <= MAX_LEAF_TRIANGLES || depth >= MAX_DEPTH || aabbVolume < MIN_AABB_VOLUME)
+            if (count <= MAX_LEAF_TRIANGLES || depth <= 0) {
+                node.info.x = 1;
+                nodes[currentIndex] = node;
                 return currentIndex; // 葉節點
-
-            // 分配到8個象限
-            std::vector<std::vector<int>> childLists(8);
-            for (int i = start; i < end; i++) {
-                glm::ivec4 face = mesh.indices[i];
-                int oct = aabb.octant((mesh.vertices[face.x] + mesh.vertices[face.y] + mesh.vertices[face.z]) / 3.0f);
-                childLists[oct].push_back(i);
             }
 
+            // 預先計算 octant
+            std::vector<int> octants(count);
+            for (int i = 0; i < count; i++) {
+                octants[i] = aabb.octant(childAABBs[i].Center());
+            }
+
+            // in-place partition
             int childEnds[8];
-            {
-                // 複製當前範圍的 indices, normals, 【和 materialIndices】
-                std::vector<glm::ivec4> tmpIndices(mesh.indices.begin() + start, mesh.indices.begin() + end);
-                std::vector<glm::vec4> tmpNormals(mesh.faceNormals.begin() + start, mesh.faceNormals.begin() + end);
+            int write = start;
+            for (int oct = 0; oct < 8; oct++) {
+                for (int i = 0, src = start; i < count; i++, src++) {
+                    if (octants[i] != oct) continue;
 
-                // 【新增】複製 materialIndices
-                std::vector<int> tmpMaterialIndices(mesh.materialIndices.begin() + start, mesh.materialIndices.begin() + end);
-
-                int write = start;
-                for (int i = 0; i < 8; i++) {
-                    for (int origIdx : childLists[i]) {
-                        // 同步寫回所有三個向量
-                        mesh.indices[write] = std::move(tmpIndices[origIdx - start]);
-                        mesh.faceNormals[write] = std::move(tmpNormals[origIdx - start]);
-
-                        // 【新增】同步寫回 materialIndices
-                        mesh.materialIndices[write] = tmpMaterialIndices[origIdx - start]; // int 不需要 move
-
-                        write++; // 統一在這裡增加 write 指針
+                    if (src != write) {
+                        std::swap(mesh.indices[write], mesh.indices[src]);
+                        std::swap(mesh.faceNormals[write], mesh.faceNormals[src]);
+                        std::swap(mesh.materialIndices[write], mesh.materialIndices[src]);
                     }
-                    childEnds[i] = write;
+                    write++;
                 }
+                childEnds[oct] = write;
             }
 
-            {   // 建立子節點
-                int childStart = start;
-                for (int i = 0; i < 8; i++) {
-                    int childEnd = childEnds[i];
-                    if (childStart < childEnd) {
-                        int childIdx = buildNode(childStart, childEnd, depth + 1);
-                        if (i < 4) node.childrenA[i] = childIdx;
-                        else       node.childrenB[i - 4] = childIdx;
-                        childStart = childEnd;
-                    }
+            // 建立子節點
+            int childStart = start;
+            for (int i = 0; i < 8; i++) {
+                int childEnd = childEnds[i];
+                if (childStart < childEnd) {
+                    int childIdx = buildNode(childStart, childEnd, depth - 1);
+                    if (i < 4) node.top[i] = childIdx;
+                    else       node.bottom[i - 4] = childIdx;
+                    childStart = childEnd;
                 }
             }
             nodes[currentIndex] = node;
             return currentIndex;
         };
 
-        buildNode(0, (int)mesh.indices.size(), 0);
+        buildNode(0, (int)mesh.indices.size(), MAX_DEPTH);
         return nodes;
+    }
+
+    Mesh mergeMeshes(const std::vector<Mesh>& meshes) {
+        Mesh mergedMesh;
+        unsigned int vertexOffset = 0;
+
+        for (const auto& mesh : meshes) {
+            // 合併頂點
+            mergedMesh.vertices.insert(mergedMesh.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
+            mergedMesh.faceNormals.insert(mergedMesh.faceNormals.end(), mesh.faceNormals.begin(), mesh.faceNormals.end());
+            glm::ivec4 offset(vertexOffset, vertexOffset, vertexOffset, 0);
+
+            // 合併索引並調整偏移量
+            for (const auto& index : mesh.indices) {
+                glm::ivec4 adjustedIndex = index + offset;
+                mergedMesh.indices.push_back(adjustedIndex);
+            }
+
+            // 合併材質索引
+            mergedMesh.materialIndices.insert(mergedMesh.materialIndices.end(), mesh.materialIndices.begin(), mesh.materialIndices.end());
+
+            vertexOffset += static_cast<unsigned int>(mesh.vertices.size());
+        }
+
+        return mergedMesh;
     }
 }

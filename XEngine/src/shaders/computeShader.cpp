@@ -146,6 +146,10 @@ namespace XEngine
 		glUniform1i(static_cast<GLint>(getUniformLoctaion(name)), val);
 	}
 
+	void ComputeShader::setUniformBool(const std::string& name, bool val) {
+		glUniform1i(static_cast<GLint>(getUniformLoctaion(name)), static_cast<int>(val));
+	}
+
 	void ComputeShader::setUniformFloat1(const std::string& name, float val1)
 	{
 		glUniform1f(static_cast<GLint>(getUniformLoctaion(name)), val1);

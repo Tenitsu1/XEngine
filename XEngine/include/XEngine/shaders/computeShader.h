@@ -40,6 +40,7 @@ namespace XEngine
 			void unbind();
 
 			void setUniformInt(const std::string& name, int val);
+			void setUniformBool(const std::string& name, bool val);
 			void setUniformFloat1(const std::string& name, float val1);
 			void setUniformFloat2(const std::string& name, float val1, float val2);
 			void setUniformFloat3(const std::string& name, float val1, float val2, float val3);

@@ -54,6 +54,8 @@ private:
 	Camera camera;
 	float lastX = 640, lastY = 450;
 
+	bool useOBVH = true;
+
 public:
 
 	core::WindowProperties getWindowProperties()
@@ -70,7 +72,7 @@ public:
 	void initialize() override
 	{
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_Close.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\boxWithDog\\scene.gltf");
 		auto& Mesh = mModel->getMesh();
 		// Mesh 加入平面光源 正方形
 		float y = 7.9f;
@@ -89,7 +91,7 @@ public:
 
 		// 加入法線（朝下）
 		glm::vec3 normal(0.0f, -1.0f, 0.0f);
-		for (int i = 0; i < 4; ++i)
+		for (int i = 0; i < 4; i++)
 			Mesh.faceNormals.push_back(glm::vec4(normal, 0.0f));
 
 		// 加入索引（兩個三角形）
@@ -198,6 +200,7 @@ public:
 
 		// Camera Setup
 		// camera.position = glm::vec3(-60.f, 90.0f, 80.f);
+		// camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
 		camera.position = glm::vec3(8.f, 4.0f, 0.2f);
 		camera.lookat = glm::vec3(-1.0f, 0.0f, 0.0f);
 		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -273,6 +276,7 @@ public:
 		mComputeShader->setUniformMat4("invViewProj", invViewProj);
 		mComputeShader->setUniformInt("max_depth", 5);
 		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
+		mComputeShader->setUniformBool("useOBVH", useOBVH);
 
 		const auto& textures = mModel->getTextures();
 		if (!textures.empty())
@@ -289,7 +293,6 @@ public:
 
 			mComputeShader->setUniformInt("u_texture_count", max_textures_to_bind);
 		}
-		
 	}
 
 	void render() override
@@ -335,6 +338,8 @@ public:
 			
 			ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 			ImGui::Text("%d vertices,\n%d indices (%d triangles)", io.MetricsRenderVertices, io.MetricsRenderIndices, triangleCount);
+			// ImGui::Text("%d, %d",Engine::Instance().getWindow().getWindowSize().x, Engine::Instance().getWindow().getWindowSize().y);
+		
 		}
 		ImGui::End();
 
@@ -358,7 +363,7 @@ public:
 		ImGui::Begin("My Window");
 
 		if (ImGui::Button("Click Me")) {
-			mShader->exportPNG("C:\\Users\\User\\Downloads\\output.png", getWindowProperties().width, getWindowProperties().height);
+			mShader->exportPNG("image\\output.png", getWindowProperties().width, getWindowProperties().height);
 		}
 
 		ImGui::End();

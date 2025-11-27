@@ -41,11 +41,16 @@ namespace XEngine::Bounds {
         return cachedCenter;
     }
 
+    float Bound3::SurfaceArea() const {
+        glm::vec3 d = max - min;
+        return 2.0f * (d.x * d.y + d.x * d.z + d.y * d.z);
+    }
+
     int Bound3::octant(const glm::vec3& point) const {
         glm::vec3 center = Center();
-        return (point.x > center.x) |
-            ((point.y > center.y) << 1) |
-            ((point.z > center.z) << 2);
+        return (point.x < center.x) |
+            ((point.y < center.y) << 1) |
+            ((point.z < center.z) << 2);
     }
 
     int Bound3::MaximumExtent() const {
@@ -64,7 +69,7 @@ namespace XEngine::Bounds {
     }
 
     float Bound3::VolumeWithMin(float minValue) const {
-        glm::vec3 d = glm::max(Diagonal(), glm::vec3(minValue));
+        glm::vec3 d = glm::max(Diagonal(), minValue);
         return d.x * d.y * d.z;
     }
 
