@@ -85,9 +85,11 @@ layout(binding = 10) uniform sampler2D u_textures[16];
 uniform vec2 u_resolution; 
 uniform Camera camera;
 uniform mat4 invViewProj;
-uniform int max_depth;
+uniform int SAMPLES_PER_PIXEL;
+uniform int MAX_DEPTH;
 uniform vec3 backgroundColor;
 uniform bool useOBVH;
+// ------------------------------------------------
 
 const float EPSILON = 1e-4;
 const vec3 WHITE = vec3(1.0, 1.0, 1.0);
@@ -243,8 +245,8 @@ Material getMaterial(int material) {
 float calculateAttenuation(float dist) {
     // 調整衰減參數，讓光線衰減更慢
     float constant = 1.0;
-    float linear = 0.02;     // 原本 0.09，改小
-    float quadratic = 0.005; // 原本 0.032，改小
+    float linear = 0.02;     // 0.02, 0.09
+    float quadratic = 0.005; // 0.005, 0.032
     return 1.0 / (constant + linear * dist + quadratic * dist * dist);
 }
 
@@ -476,25 +478,23 @@ vec3 getRayDir(vec2 pixel)
 }
 
 vec3 trace_ray(Ray ray, float sampleIndex) {
-    vec3 attenuation = WHITE;
-    vec3 color = vec3(0.0);
+    vec3 rayColor = WHITE;
+    vec3 brightness_score = vec3(0.0);
 
-    for (int depth = 0; depth < max_depth; depth++) {
+    for (int depth = 0; depth < MAX_DEPTH; depth++) {
         HitRecord hit;
         if (!hit_world(ray, hit)) {
             // // 背景色
             // float a = 0.5 * (ray.direction.y + 1.0);
             // vec3 sky = mix(WHITE, vec3(0.5, 0.7, 1.0), a);
             // color += attenuation * sky;
-            color += attenuation;
             break;
         }
         Material material = hit.material;
 
         if (material.type == LIGHT) {
             float lightAttenuation = calculateAttenuation(hit.t);
-            color += attenuation * hit.color * lightAttenuation;
-            break;
+            brightness_score += rayColor * hit.color * lightAttenuation;
         }
 
         // 玻璃
@@ -502,7 +502,7 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
             float ior = material.ior;
             float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
             ray.direction = refract(ray.direction, hit.shadingNormal, eta);
-            attenuation *= max(vec3(0.8), hit.color) * 0.98;
+            rayColor *= max(vec3(0.8), hit.color) * 0.98;
         } else {
             // 漫反射 + 高光
             vec2 seed = hit.point.xy + float(depth) + sampleIndex;
@@ -515,20 +515,19 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
                 vec3 specularDir = reflect(viewDir, hit.shadingNormal);
                 vec3 ggx = GGX_Specular(hit.shadingNormal, viewDir, specularDir, material.roughness, vec3(0.04));
                 ray.direction = specularDir;
-                attenuation *= ggx * hit.color;
+                rayColor *= ggx * hit.color;
             } else {
                 // 漫反射
                 ray.direction = halfDir;
-                attenuation *= hit.color * 0.8;
+                rayColor *= hit.color * 0.8;
             }
         }
         ray.origin = hit.point;
     }
-    return color;
+    return brightness_score;
 }
 
 // ----------------------------------------------------
-const int SAMPLES_PER_PIXEL = 1;
 void main()
 {
     // 取得像素座標

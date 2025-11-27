@@ -28,6 +28,7 @@ namespace XEngine
 		void setFBO();
 
 		void setUniformInt(const std::string& name, int val);
+		void setUniformBool(const std::string& name, bool val);
 		void setUniformFloat1(const std::string& name, float val1);
 		void setUniformFloat2(const std::string& name, float val1, float val2);
 		void setUniformFloat3(const std::string& name, float val1, float val2, float val3);
@@ -40,7 +41,7 @@ namespace XEngine
 		void setUniformMat3(const std::string& name, const glm::mat3& mat);
 		void setUniformMat4(const std::string& name, const glm::mat4& mat);
 
-		void bindTexture(uint32_t texture, uint32_t textureUnit);
+		void bindTexture(uint32_t texture, uint32_t textureUnit, const std::string& uniformName);
 		void createTexture(int width, int height);
 		void exportPNG(const std::string& path, int width, int height);
 

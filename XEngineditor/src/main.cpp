@@ -19,6 +19,9 @@
 #include "external/glm/gtc/matrix_transform.hpp"
 #include "external/tinygltf/tiny_gltf.h"
 
+#include <string>
+#include <filesystem>
+
 using namespace XEngine;
 
 class Editor : public XEngine::App
@@ -51,6 +54,7 @@ private:
 	float keySpeed = 0.005f;
 	float size = 0.5f;
 	int samples_per_pixel = 1;
+	int max_depth = 5;
 	Camera camera;
 	float lastX = 640, lastY = 450;
 
@@ -122,7 +126,7 @@ public:
 		mShader->setEBO(quadIndices, sizeof(quadIndices));
 		mShader->bind(quadVertices, 4, 4);
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
-		mShader->bindTexture(mComputeShader->getTexture(), 0);
+		mShader->bindTexture(mComputeShader->getTexture(), 0, "screenTexture");
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
 
 		if (!mtinyModel.materials.empty())
@@ -274,7 +278,8 @@ public:
 		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
 		mComputeShader->setUniformCamera("camera", camera);
 		mComputeShader->setUniformMat4("invViewProj", invViewProj);
-		mComputeShader->setUniformInt("max_depth", 5);
+		mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
+		mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
 		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
 		mComputeShader->setUniformBool("useOBVH", useOBVH);
 
@@ -319,9 +324,8 @@ public:
 
 		if (ImGui::Begin("Test2"))
 		{
-			ImGui::DragFloat("light", &light, 1);
-			ImGui::DragFloat("size", &size, 0.01f);
 			ImGui::DragInt("samples_per_pixel", &samples_per_pixel, 0.1f);
+			ImGui::DragInt("max_depth", &max_depth, 0.1f);
 		}
 		ImGui::End();
 
@@ -363,7 +367,17 @@ public:
 		ImGui::Begin("My Window");
 
 		if (ImGui::Button("Click Me")) {
-			mShader->exportPNG("image\\output.png", getWindowProperties().width, getWindowProperties().height);
+			int num = 0;
+			std::string path;
+			while (true)
+			{
+			// "image\\output.png"
+				
+				path = "image\\output_" + std::to_string(num) + ".png";
+				if (!std::filesystem::exists(path)) break;
+				num++;
+			}
+			mShader->exportPNG(path.c_str(), getWindowProperties().width, getWindowProperties().height);
 		}
 
 		ImGui::End();

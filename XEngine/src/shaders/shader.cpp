@@ -179,6 +179,11 @@ namespace XEngine
 		glUniform1i(static_cast<GLint>(getUniformLoctaion(name)), val);
 	}
 
+	void Shader::setUniformBool(const std::string& name, bool val)
+	{
+		glUniform1i(static_cast<GLint>(getUniformLoctaion(name)), static_cast<int>(val));
+	}
+
 	void Shader::setUniformFloat1(const std::string& name, float val1)
 	{
 		glUniform1f(static_cast<GLint>(getUniformLoctaion(name)), val1);
@@ -236,11 +241,11 @@ namespace XEngine
 		return mUniformLocations[name];
 	}
 
-	void Shader::bindTexture(uint32_t textureID, uint32_t textureUnit)
+	void Shader::bindTexture(uint32_t textureID, uint32_t textureUnit, const std::string& uniformName)
 	{
 		glActiveTexture(GL_TEXTURE0 + textureUnit);
 		glBindTexture(GL_TEXTURE_2D, textureID);
-		glUniform1i(glGetUniformLocation(mProgramId, "screenTexture"), textureUnit);
+		glUniform1i(glGetUniformLocation(mProgramId, uniformName.c_str()), textureUnit);
 	}
 
 	void Shader::createTexture(int width, int height)
