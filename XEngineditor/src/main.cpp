@@ -8,6 +8,8 @@
 
 #include "XEngine/graphics/gltfLoader.h"
 #include "XEngine/graphics/structs.hpp"
+#include "XEngine/graphics/camera.hpp"
+#include "XEngine/graphics/cameraController.hpp"
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
@@ -32,15 +34,16 @@ private:
 	std::shared_ptr<Shader> mShader;
 	tinygltf::Model mtinyModel;
 	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
+	std::unique_ptr<CameraController> mCameraController;
 	GLuint mVerticesSSBO = 0; // vertex  SSBO-ID
 	GLuint mIndicesSSBO = 0;  // indices SSBO-ID
 	GLuint mNormalsSSBO = 0;  // normal  SSBO-ID
 	GLuint mOBVHSSBO = 0;     // OBVH    SSBO-ID
+	GLuint mMaterialDataSSBO = 0;
 	GLuint mFaceNormalsSSBO = 0;
 	GLuint mTexCoordsSSBO = 0;
 	GLuint mMaterialIndicesSSBO = 0;
 	GLuint mMatToTexMapSSBO = 0;
-	std::vector<int> matToTexMap;
 
 	GLuint mScreenTextures[2] = {0, 0};
 	int mCurrentFrame = 0;
@@ -50,19 +53,20 @@ private:
 	float deltaTime = 0;
 	int triangleCount = 0; 
 
+
 	float light = 1000.f;
 	float xkeyOffset = 0.f;
 	float ykeyOffset = 0.f;
 	float zkeyOffset = 5.f;
-	float keySpeed = 0.005f;
-	float size = 0.5f;
 	int samples_per_pixel = 1;
 	int max_depth = 5;
 	Camera camera;
+	// Camera camera;
 	bool cameraUpdated = false;
+	bool GuiCameraChanged = false;
 	float lastX = 640, lastY = 450;
 
-	bool useOBVH = true;
+	bool useOBVH = false;
 
 public:
 
@@ -82,8 +86,20 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\boxWithDog\\scene.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_Close.gltf");
 		auto& Mesh = mModel->getMesh();
+
+		std::vector<Material> materials = mModel->getMaterials();
+		int lightMatIdx = (int)materials.size();
+		Material lightMat;
+		lightMat.baseColorFactor = glm::vec4(1.0f);
+		lightMat.emissionFactor = glm::vec4(3.0f); // 強度 15 的白光
+		lightMat.type = 1; // Light Type
+		materials.push_back(lightMat);
+
+		Mesh.materialIndices.push_back(lightMatIdx);
+		Mesh.materialIndices.push_back(lightMatIdx);
+
 		// Mesh 加入平面光源 正方形
 		float y = 7.9f;
 		glm::vec3 c(-4.0f, y, 0.0f);
@@ -110,7 +126,6 @@ public:
 		Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 2, baseIdx + 3, 0));
 
 		// 加入材質索引
-		int lightMatIdx = 0; // 或你已知的 LIGHT 材質 index
 		Mesh.materialIndices.push_back(lightMatIdx);
 		Mesh.materialIndices.push_back(lightMatIdx);
 		
@@ -137,17 +152,6 @@ public:
 
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
 
-		if (!mtinyModel.materials.empty())
-		{
-			matToTexMap.resize(mtinyModel.materials.size());
-			for (size_t i = 0; i < mtinyModel.materials.size(); ++i)
-			{
-				const auto& mat = mtinyModel.materials[i];
-				int texture_index = mat.pbrMetallicRoughness.baseColorTexture.index;
-				matToTexMap[i] = texture_index; 
-			}
-		}
-
 
 		if (triangleCount > 0)
 		{
@@ -166,31 +170,38 @@ public:
 				XENGINE_WARN("Model has no texture coordinates!");
 			}
 
-			if (!Mesh.materialIndices.empty()) {
+			// [修改] Material Indices (Binding 7)
+			if (!Mesh.materialIndices.empty()) 
+			{
 				mComputeShader->createSSBO(mMaterialIndicesSSBO,
 					(uint32_t)Mesh.materialIndices.size() * sizeof(int),
 					Mesh.materialIndices.data(), 7);
 			}
-			if (!matToTexMap.empty()) {
-				mComputeShader->createSSBO(mMatToTexMapSSBO,
-					(uint32_t)matToTexMap.size() * sizeof(int),
-					matToTexMap.data(), 8);
+
+			// [新增] Material Data SSBO (Binding 8)
+			// 將整個 GPUMaterial 陣列傳入 GPU
+			if (!materials.empty()) 
+			{
+				mComputeShader->createSSBO(mMaterialDataSSBO,
+					(uint32_t)materials.size() * sizeof(Material),
+					materials.data(), 8);
 			}
 			
-			/* {
+			 {
 				XENGINE_TRACE("Vertices SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.size());
 				XENGINE_TRACE("Indices SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.size());
 				XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.size());
+				XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
+					(uint32_t)Mesh.faceNormals.size() * sizeof(glm::vec4), Mesh.faceNormals.size());
 				XENGINE_TRACE("TexCoords SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.size());
 				XENGINE_TRACE("MaterialIndices SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.materialIndices.size() * sizeof(int), Mesh.materialIndices.size());
-				XENGINE_TRACE("MatToTexMap SSBO created, size: {}, count: {}",
-					(uint32_t)matToTexMap.size() * sizeof(int), matToTexMap.size());
-			} */
+				
+			} 
 		}
 
 
@@ -210,16 +221,15 @@ public:
 		XENGINE_TRACE("=========================================");
 
 
-		// Camera Setup
-		// camera.position = glm::vec3(-60.f, 90.0f, 80.f);
-		// camera.lookat = glm::vec3(0.0f, 0.0f, -1.0f);
-		camera.position = glm::vec3(8.f, 4.0f, 0.2f);
-		camera.lookat = glm::vec3(-1.0f, 0.0f, 0.0f);
-		camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
-		camera.fov = 45.0f;
 
-		camera.yaw = -90.0f;  // 或 270.0f
-		camera.pitch = 0.0f;
+		camera = Camera(glm::vec3(8.f, 4.0f, 0.2f));
+		camera.Yaw = -180.0f;
+		camera.Pitch = 0.0f;
+		camera.MovementSpeed = 5.0f; 
+		camera.ProcessMouseMovement(0, 0);
+
+		mCameraController = std::make_unique<CameraController>(camera);
+		mCameraController->SetSpeed(10.0f);
 
 	}
 	void shutdown() override
@@ -235,75 +245,30 @@ public:
 		nowTime = Engine::Instance().getWindow().getDeltaTime();
 		deltaTime = (float)((nowTime - laseTime) * 1000 / (float)Engine::Instance().getWindow().getDeltaTime());
 
-		float deltaTimeMax = deltaTime * 100000;
-		
+		float timeStep = deltaTime * 10.0f;
+
 
 		// Camera Updata
-		cameraUpdated = false;
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) {
-			cameraUpdated = true;
-			camera.position -= keySpeed * camera.lookat * deltaTimeMax;
-		}
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) {
-			cameraUpdated = true;
-			camera.position += keySpeed * camera.lookat * deltaTimeMax;
-		}
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) {
-			cameraUpdated = true;
-			camera.position -= glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax;
-		}
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) {
-			cameraUpdated = true;
-			camera.position += glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax;
-		}
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) {
-			cameraUpdated = true;
-			ykeyOffset += keySpeed * deltaTimeMax;
-		}
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) {
-			cameraUpdated = true;
-			ykeyOffset -= keySpeed * deltaTimeMax;
-		}
-		/*float xkeyOffset = input::Mouse::dX();
-		float ykeyOffset = input::Mouse::dY();
-		float sensitivity = 0.1f;
-		xkeyOffset *= sensitivity;
-		ykeyOffset *= sensitivity;
-		camera.yaw += xkeyOffset;
-		camera.pitch -= ykeyOffset;
+		cameraUpdated = mCameraController->OnUpdate(timeStep);
 
-		if (camera.pitch > 89.0f)
-			camera.pitch = 89.0f;
-		if (camera.pitch < -89.0f)
-			camera.pitch = -89.0f;
-
-		glm::vec3 front;
-		front.x = cos(glm::radians(camera.pitch)) * cos(glm::radians(camera.yaw));
-		front.y = sin(glm::radians(camera.pitch));
-		front.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));
-		camera.lookat = glm::normalize(front);
-		camera.right = glm::normalize(glm::cross(camera.lookat, camera.up)); 
-		camera.cameraUp = glm::normalize(glm::cross(camera.right, camera.lookat));
-		camera.direction = camera.lookat;
+		if (GuiCameraChanged)
+		{
+			cameraUpdated = true;     
+			GuiCameraChanged = false;
+		}
 
 
-		camera.direction.x = cos(glm::radians(camera.pitch)) * cos(glm::radians(camera.yaw)); 
-		camera.direction.y = sin(glm::radians(camera.pitch));
-		camera.direction.z = cos(glm::radians(camera.pitch)) * sin(glm::radians(camera.yaw));*/
-
-		float fov = glm::radians(camera.fov);
-		float aspect = (float)windowSize.x / (float)windowSize.y;
-		glm::mat4 view = glm::lookAt(camera.position, camera.position+camera.lookat, camera.up);
-		// 近裁剪面（zNear = 0.1f）和遠裁剪面（zFar = 100.0f）
-		glm::mat4 projection = glm::perspective(fov, aspect, 0.1f, 100.0f);
+		// 計算矩陣
+		glm::mat4 view = camera.GetViewMatrix();
+		glm::mat4 projection = camera.GetProjectionMatrix((float)windowSize.x, (float)windowSize.y);
 		glm::mat4 invViewProj = glm::inverse(projection * view);
-
+		CameraData cameraShaderData = camera.GetShaderData();
 
 		// Compute Shader setup
 		mComputeShader->bind();
 		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
 		mComputeShader->setUniformFloat1("u_time", (float)nowTime / 1000.0f);
-		mComputeShader->setUniformCamera("camera", camera);
+		mComputeShader->setUniformCamera("camera", cameraShaderData);
 		mComputeShader->setUniformBool("cameraUpdated", cameraUpdated);
 		mComputeShader->setUniformMat4("invViewProj", invViewProj);
 		mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
@@ -353,13 +318,6 @@ public:
 		ImGuiIO& io = ImGui::GetIO();
 		ImGui::ShowDemoWindow();
 
-		if (ImGui::Begin("Test1"))
-		{
-			ImGui::DragFloat("LookAtX", &camera.lookat.x, 0.01f);
-			ImGui::DragFloat("LookAtY", &camera.lookat.y, 0.01f);
-			ImGui::DragFloat("LookAtZ", &camera.lookat.z, 0.01f);
-		}
-		ImGui::End();
 
 		if (ImGui::Begin("Test2"))
 		{
@@ -370,9 +328,12 @@ public:
 
 		if (ImGui::Begin("Test3"))
 		{
-			ImGui::DragFloat("CamearX", &camera.position.x, 0.01f);
-			ImGui::DragFloat("CamearY", &camera.position.y, 0.01f);
-			ImGui::DragFloat("CamearZ", &camera.position.z, 0.01f);
+			bool moved = false;
+			moved |= ImGui::DragFloat("CamearX", &camera.Position.x, 0.01f);
+			moved |= ImGui::DragFloat("CamearY", &camera.Position.y, 0.01f);
+			moved |= ImGui::DragFloat("CamearZ", &camera.Position.z, 0.01f);
+
+			if (moved) GuiCameraChanged = true;
 		}
 		ImGui::End();
 
@@ -403,9 +364,22 @@ public:
 		}
 		ImGui::End();
 
+		if (ImGui::Begin("Camera Controller"))
+		{
+			// 你現在可以直接調整控制器的參數
+			float speed = mCameraController->GetSpeed();
+			if (ImGui::DragFloat("Move Speed", &speed, 0.1f)) {
+				mCameraController->SetSpeed(speed);
+			}
+
+			ImGui::Separator();
+			ImGui::Text("Camera Pos: (%.2f, %.2f, %.2f)", camera.Position.x, camera.Position.y, camera.Position.z);
+		}
+		ImGui::End();
+
 		ImGui::Begin("My Window");
 
-		if (ImGui::Button("Click Me")) {
+		if (ImGui::Button("Screenshot")) {
 			int num = 0;
 			std::string path;
 			while (true)

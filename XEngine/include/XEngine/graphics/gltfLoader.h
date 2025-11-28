@@ -50,6 +50,7 @@ namespace XEngine::graphics
 
 		inline Mesh& getMesh() { return mMesh; }
 		inline const std::vector<GLuint>& getTextures() const { return mTextures; }
+		inline const std::vector<Material>& getMaterials() const { return mMaterials; }
 
 
 		// Debug
@@ -57,8 +58,10 @@ namespace XEngine::graphics
 
 	private:
 		Mesh mMesh;
+		std::vector<Material> mMaterials;;
 		void extractMesh(tinygltf::Model& model);
 		void extractNodeMesh(tinygltf::Model& model, const tinygltf::Node& node, const glm::mat4& parentTransform, unsigned int& vertex_offset);
+		void extractMaterials(tinygltf::Model& model);
 
 	private:
 		void bindMesh(std::map<int, GLuint>& vbos, tinygltf::Model& model, tinygltf::Mesh& mesh);
@@ -73,6 +76,4 @@ namespace XEngine::graphics
 		std::pair<GLuint, std::map<int, GLuint>> vaoAndEbos;
 		std::vector<GLuint> mTextures;
 	};
-
-
 }
