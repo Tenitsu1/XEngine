@@ -1,14 +1,15 @@
 ﻿#version 460 core
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(rgba32f, binding = 0) uniform writeonly image2D screenTexture;
+layout(binding = 1) uniform sampler2D prevFrameTexture;
 
 // SSBO 相關定義 (保持不變)
 struct OBVHNode {
     vec4 aabbMin;
     vec4 aabbMax;
-    ivec4 top; // 最多4個子節點索引，-1表示無
-    ivec4 bottom; // 最多4個子節點索引，-1表示無
-    ivec4 info;     // z=start, w=count
+    ivec4 top;      // 最多4個子節點索引，-1表示無
+    ivec4 bottom;   // 最多4個子節點索引，-1表示無
+    ivec4 info;     // x=(1 leaf, -1 not leaf) , z=start, w=count
 };
 
 struct Camera {
@@ -44,23 +45,23 @@ struct HitRecord {
     vec3 geoNormal;     
 };
 
-layout(std430, binding = 1) buffer OBVHNodeBuffer {
+layout(std430, binding = 2) buffer OBVHNodeBuffer {
     OBVHNode obvhNodes[];
 };
 
-layout(std430, binding = 2) buffer VerticesBuffer {
+layout(std430, binding = 3) buffer VerticesBuffer {
     vec4 vertices[];
 };
 
-layout(std430, binding = 3) buffer IndicesBuffer {
+layout(std430, binding = 4) buffer IndicesBuffer {
     ivec4 indices[];
 };
 
-layout(std430, binding = 4) buffer GeoNormalsBuffer {
+layout(std430, binding = 5) buffer GeoNormalsBuffer {
     vec4 geoNormals[];
 };
 
-layout(std430, binding = 5) buffer TexCoordsBuffer {
+layout(std430, binding = 6) buffer TexCoordsBuffer {
     vec2 texCoords[];
 };
 
@@ -82,8 +83,11 @@ layout(std430, binding = 9) buffer VertexNormalsBuffer {
 layout(binding = 10) uniform sampler2D u_textures[16]; 
 
 
-uniform vec2 u_resolution; 
+uniform vec2 u_resolution;
+uniform float u_time;
 uniform Camera camera;
+uniform bool cameraUpdated;
+
 uniform mat4 invViewProj;
 uniform int SAMPLES_PER_PIXEL;
 uniform int MAX_DEPTH;
@@ -93,6 +97,7 @@ uniform bool useOBVH;
 
 const float EPSILON = 1e-4;
 const vec3 WHITE = vec3(1.0, 1.0, 1.0);
+const float alpha = 0.1; // 混合係數
 
 // 定義隨機數生成函數
 uint hash( uint x ) {
@@ -148,13 +153,13 @@ vec3 random_in_hemisphere(vec3 normal, vec2 seed) {
 
 vec3 cosine_weighted_direction(vec3 normal, vec2 seed, vec3 geoNormal) {
     // 餘弦加權分布
-    vec2 r = random_vec2(seed);
-    float phi = 2.0 * 3.14159265359 * r.x;
-    float cosTheta = sqrt(1.0 - r.y);
-    float sinTheta = sqrt(r.y);
+    const vec2 r = random_vec2(seed);
+    const float phi = 2.0 * 3.14159265359 * r.x;
+    const float cosTheta = sqrt(1.0 - r.y);
+    const float sinTheta = sqrt(r.y);
 
-    vec3 tangent = normalize(abs(normal.x) > 0.1 ? cross(normal, vec3(0,1,0)) : cross(normal, vec3(1,0,0)));
-    vec3 bitangent = cross(normal, tangent);
+    const vec3 tangent = normalize(abs(normal.x) > 0.1 ? cross(normal, vec3(0,1,0)) : cross(normal, vec3(1,0,0)));
+    const vec3 bitangent = cross(normal, tangent);
 
     vec3 dir = cosTheta * normal +
                sinTheta * cos(phi) * tangent +
@@ -166,19 +171,19 @@ vec3 cosine_weighted_direction(vec3 normal, vec2 seed, vec3 geoNormal) {
 
 // GGX D項：Normal Distribution Function
 float D_GGX(float NdotH, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH2 = NdotH * NdotH;
-    float denom = NdotH2 * (a2 - 1.0) + 1.0;
+    const float a = roughness * roughness;
+    const float a2 = a * a;
+    const float NdotH2 = NdotH * NdotH;
+    const float denom = NdotH2 * (a2 - 1.0) + 1.0;
     return a2 / (3.14159265 * denom * denom);
 }
 
 // GGX G項：Geometry/Shadowing Term（Smith法）
 float G_Smith(float NdotV, float NdotL, float roughness) {
-    float a = roughness * roughness;
-    float k = (a + 1.0) * (a + 1.0) / 8.0;
-    float G1V = NdotV / (NdotV * (1.0 - k) + k);
-    float G1L = NdotL / (NdotL * (1.0 - k) + k);
+    const float a = roughness * roughness;
+    const float k = (a + 1.0) * (a + 1.0) / 8.0;
+    const float G1V = NdotV / (NdotV * (1.0 - k) + k);
+    const float G1L = NdotL / (NdotL * (1.0 - k) + k);
     return G1V * G1L;
 }
 
@@ -189,25 +194,25 @@ vec3 F_Schlick(float VdotH, vec3 F0) {
 
 // GGX Specular BRDF
 vec3 GGX_Specular(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness, vec3 F0) {
-    vec3 halfDir = normalize(viewDir + lightDir);
-    float NdotL = max(dot(normal, lightDir), 0.0);
-    float NdotV = max(dot(normal, viewDir), 0.0);
-    float NdotH = max(dot(normal, halfDir), 0.0);
-    float VdotH = max(dot(viewDir, halfDir), 0.0);
+    const vec3 halfDir = normalize(viewDir + lightDir);
+    const float NdotL = max(dot(normal, lightDir), 0.0);
+    const float NdotV = max(dot(normal, viewDir), 0.0);
+    const float NdotH = max(dot(normal, halfDir), 0.0);
+    const float VdotH = max(dot(viewDir, halfDir), 0.0);
 
-    float D = D_GGX(NdotH, roughness);
-    float G = G_Smith(NdotV, NdotL, roughness);
-    vec3 F = F_Schlick(VdotH, F0);
+    const float D = D_GGX(NdotH, roughness);
+    const float G = G_Smith(NdotV, NdotL, roughness);
+    const vec3 F = F_Schlick(VdotH, F0);
 
     return (D * G * F) / (4.0 * NdotL * NdotV + 0.001);
 }
 
 // 區域光源採樣函式
 vec3 sample_area_light(vec3 lightCenter, float lightRadius, vec2 seed) {
-    float z = random(seed) * 2.0 - 1.0;
-    float phi = 2.0 * 3.14159265359 * random(seed + 1.0);
-    float r = sqrt(1.0 - z * z);
-    vec3 dir = vec3(r * cos(phi), r * sin(phi), z);
+    const float z = random(seed) * 2.0 - 1.0;
+    const float phi = 2.0 * 3.14159265359 * random(seed + 1.0);
+    const float r = sqrt(1.0 - z * z);
+    const vec3 dir = vec3(r * cos(phi), r * sin(phi), z);
     return lightCenter + lightRadius * dir;
 }
 
@@ -250,25 +255,48 @@ float calculateAttenuation(float dist) {
     return 1.0 / (constant + linear * dist + quadratic * dist * dist);
 }
 
+vec3 barycentric(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
+    float w = 1.0 - u - v;
+    return normalize(n0 * w + n1 * u + n2 * v);
+}
+
+vec3 quadratic(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
+    float w = 1.0 - u - v;
+    // 二次重心基底
+    float uu = u * u;
+    float vv = v * v;
+    float ww = w * w;
+    float uv = u * v;
+    float uw = u * w;
+    float vw = v * w;
+    // 可調整權重，這裡用常見的二次重心插值
+    return normalize(
+        n0 * ww +
+        n1 * uu +
+        n2 * vv +
+        2.0 * (n0 * uw + n1 * uv + n2 * vw)
+    );
+}
+
 // --- 新增 intersectTriangle 函式 (你的版本) ---
 vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
-    vec3 edge1 = p1 - p0;
-    vec3 edge2 = p2 - p0;
-    vec3 pvec = cross(ray.direction, edge2);
-    float det = dot(edge1, pvec);
+    const vec3 edge1 = p1 - p0;
+    const vec3 edge2 = p2 - p0;
+    const vec3 pvec = cross(ray.direction, edge2);
+    const float det = dot(edge1, pvec);
 
-    if (abs(det) < EPSILON) return vec3(-1.0);
+    if (abs(det) < 1e-5) return vec3(-1.0);
 
-    float invDet = 1.0 / det;
-    vec3 tvec = ray.origin - p0;
-    float u = dot(tvec, pvec) * invDet;
+    const float invDet = 1.0 / det;
+    const vec3 tvec = ray.origin - p0;
+    const float u = dot(tvec, pvec) * invDet;
     if (u < 0.0 || u > 1.0) return vec3(-1.0);
 
-    vec3 qvec = cross(tvec, edge1);
-    float v = dot(ray.direction, qvec) * invDet;
+    const vec3 qvec = cross(tvec, edge1);
+    const float v = dot(ray.direction, qvec) * invDet;
     if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
 
-    float t = dot(edge2, qvec) * invDet;
+    const float t = dot(edge2, qvec) * invDet;
 
     if (t < EPSILON) return vec3(-1.0);
     return vec3(t, u, v);
@@ -276,54 +304,53 @@ vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
 // ------------------------------------------------
 // --- 新增 hit_qbvh 函式 ---
 bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
-    vec3 invD = 1.0 / ray.direction;
-    vec3 t0 = (minB - ray.origin) * invD;
-    vec3 t1 = (maxB - ray.origin) * invD;
+    const vec3 invD = 1.0 / ray.direction;
+    const vec3 t0 = (minB - ray.origin) * invD;
+    const vec3 t1 = (maxB - ray.origin) * invD;
 
-    vec3 tmin = min(t0, t1);
-    vec3 tmax = max(t0, t1);
+    const vec3 tmin = min(t0, t1);
+    const vec3 tmax = max(t0, t1);
 
-    float entry = max(max(tmin.x, tmin.y), tmin.z);
-    float exit  = min(min(tmax.x, tmax.y), tmax.z);
+    const float entry = max(max(tmin.x, tmin.y), tmin.z);
+    const float exit  = min(min(tmax.x, tmax.y), tmax.z);
 
     return exit >= max(entry, 0.0) && entry < tMax;
 }
 
 vec3 get_texture_color(int i, float u, float v) {
     // 從 SSBO 中獲取當前Mesh的材質索引
-    int matIndex = materialIndices[i];
+    const int matIndex = materialIndices[i];
     if (matIndex < 0) {
-        return vec3(0.5, 0.5, 0.5); // 灰色表示無材質
+        return vec3(0.5); // 灰色表示無材質
     }
 
     // 從材質索引映射到紋理索引
-    int textureIndex = matToTexMap[matIndex];
+    const int textureIndex = matToTexMap[matIndex];
     if (textureIndex < 0) {
         return vec3(1.0, 0.0, 1.0); // 紫色表示沒有紋理
     }
 
-    ivec4 index = indices[i];
-    vec2 uv0 = texCoords[index.x];
-    vec2 uv1 = texCoords[index.y];
-    vec2 uv2 = texCoords[index.z];
+    const ivec4 index = indices[i];
+    const vec2 uv0 = texCoords[index.x];
+    const vec2 uv1 = texCoords[index.y];
+    const vec2 uv2 = texCoords[index.z];
 
     // 內插 UV 座標並從紋理採樣
-    vec2 hitUV = (1.0 - u - v) * uv0 + u * uv1 + v * uv2;
+    const vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
 
     return texture(u_textures[textureIndex], hitUV).rgb;
 }
 
 bool hit_obvh_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
-    bool doubleSided = false;
-    ivec4 index = indices[i];
-    vec3 p0 = vertices[index.x].xyz;
-    vec3 p1 = vertices[index.y].xyz;
-    vec3 p2 = vertices[index.z].xyz;
+    const bool doubleSided = false;
+    const ivec4 index = indices[i];
+    const vec3 p0 = vertices[index.x].xyz;
+    const vec3 p1 = vertices[index.y].xyz;
+    const vec3 p2 = vertices[index.z].xyz;
+    const vec3 tempHitResult = intersectTriangle(ray, p0, p1, p2);
+    const float t = tempHitResult.x;
 
-    vec3 tempHitResult = intersectTriangle(ray, p0, p1, p2);
-    float t = tempHitResult.x;
-
-    bool hitSomething = t < tMax && (doubleSided || t > EPSILON);
+    const bool hitSomething = t < tMax && (doubleSided || t > EPSILON);
     if (hitSomething) {
         tMax = t;
         hitResult = tempHitResult;
@@ -342,6 +369,7 @@ int hit_obvh(Ray ray, out vec3 hitResult) {
     stack[stackPtr++] = 0; // root node
 
     while (stackPtr > 0) {
+        if (tMax < EPSILON) break;
         int nodeIdx = stack[--stackPtr];
         OBVHNode node = obvhNodes[nodeIdx];
 
@@ -349,12 +377,12 @@ int hit_obvh(Ray ray, out vec3 hitResult) {
             continue;
         }
 
-        bool isLeaf = (node.info.x == 1);
+        const bool isLeaf = (node.info.x == 1);
 
         if (isLeaf) {
             // 處理葉節點中的所有三角形
-            int start = node.info.z;
-            int count = node.info.w;
+            const int start = node.info.z;
+            const int count = node.info.w;
             for (int i = start; i < start + count; i++) 
             {   
                 vec3 tempHitResult;
@@ -365,8 +393,8 @@ int hit_obvh(Ray ray, out vec3 hitResult) {
                 }
             }
         } else {
-            ivec4 top = node.top;
-            ivec4 bottom = node.bottom;
+            const ivec4 top = node.top;
+            const ivec4 bottom = node.bottom;
             if (top.x >= 0) stack[stackPtr++] = top.x;
             if (top.y >= 0) stack[stackPtr++] = top.y;
             if (top.z >= 0) stack[stackPtr++] = top.z;
@@ -385,13 +413,13 @@ int hit_triangle(Ray ray, out vec3 hitResult) {
     int hitIdx = -1;
 
     for (int i = 0; i < indices.length(); i++) {
-        ivec4 index = indices[i];
-        vec3 p0 = vertices[index.x].xyz;
-        vec3 p1 = vertices[index.y].xyz;
-        vec3 p2 = vertices[index.z].xyz;
+        const ivec4 index = indices[i];
+        const vec3 p0 = vertices[index.x].xyz;
+        const vec3 p1 = vertices[index.y].xyz;
+        const vec3 p2 = vertices[index.z].xyz;
 
-        vec3 tempHitResult = intersectTriangle(ray, p0, p1, p2);
-        float t = tempHitResult.x;
+        const vec3 tempHitResult = intersectTriangle(ray, p0, p1, p2);
+        const float t = tempHitResult.x;
 
         if (t < tMax && t > EPSILON) {
             tMax = t;
@@ -402,55 +430,36 @@ int hit_triangle(Ray ray, out vec3 hitResult) {
     return hitIdx;
 }
 
-vec3 quadratic_normal(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
-    float w = 1.0 - u - v;
-    // 二次重心基底
-    float uu = u * u;
-    float vv = v * v;
-    float ww = w * w;
-    float uv = u * v;
-    float uw = u * w;
-    float vw = v * w;
-    // 可調整權重，這裡用常見的二次重心插值
-    return normalize(
-        n0 * ww +
-        n1 * uu +
-        n2 * vv +
-        2.0 * (n0 * uw + n1 * uv + n2 * vw)
-    );
-}
-
 bool hit_world(Ray ray, out HitRecord hit) {
     vec3 hitResult;
     int hitIdx = useOBVH ? hit_obvh(ray, hitResult) : hit_triangle(ray, hitResult);
     if (hitIdx == -1) return false;
 
-    ivec4 index = indices[hitIdx];
-    vec3 p0 = vertices[index.x].xyz;
-    vec3 p1 = vertices[index.y].xyz;
-    vec3 p2 = vertices[index.z].xyz;
+    const ivec4 index = indices[hitIdx];
+    const vec3 p0 = vertices[index.x].xyz;
+    const vec3 p1 = vertices[index.y].xyz;
+    const vec3 p2 = vertices[index.z].xyz;
     
-    float t = hitResult.x;
-    float u = hitResult.y;
-    float v = hitResult.z;
-
+    const float t = hitResult.x;
+    const float u = hitResult.y;
+    const float v = hitResult.z;
     hit.t = t;
     hit.point = ray.origin + hit.t * ray.direction;
 
-    vec3 n0 = vertexNormals[index.x].xyz;
-    vec3 n1 = vertexNormals[index.y].xyz;
-    vec3 n2 = vertexNormals[index.z].xyz;
+    const vec3 n0 = vertexNormals[index.x].xyz;
+    const vec3 n1 = vertexNormals[index.y].xyz;
+    const vec3 n2 = vertexNormals[index.z].xyz;
 
-    vec3 geoNormal = geoNormals[hitIdx].xyz;
+    const vec3 geoNormal = geoNormals[hitIdx].xyz;
     // vec3 normal = quadratic_normal(n0, n1, n2, u, v);
-    vec3 normal = normalize((1.0 - u - v) * n0 + u * n1 + v * n2);
-    bool geo_frontFace = dot(ray.direction, geoNormal) < 0.0;
-    bool frontFace = dot(geoNormal, normal) > 0.0;
+    const vec3 normal = barycentric(n0, n1, n2, u, v);
+    const bool geo_frontFace = dot(ray.direction, geoNormal) < 0.0;
+    const bool frontFace = dot(geoNormal, normal) > 0.0;
 
     hit.geoNormal = geo_frontFace ? geoNormal : -geoNormal;
     hit.shadingNormal = frontFace ? normal : -normal;
 
-    int material = index.w;
+    const int material = index.w;
     hit.material = getMaterial(material);
     if (material == LIGHT) 
     {
@@ -470,8 +479,8 @@ bool hit_world(Ray ray, out HitRecord hit) {
 vec3 getRayDir(vec2 pixel)
 {
     // 光線生成
-    vec2 ndc = (pixel + vec2(0.5)) / u_resolution * 2.0 - 1.0; // 正規化裝置座標
-    vec4 clip = vec4(ndc, -1.0, 1.0);   // 裁剪空間座標
+    const vec2 ndc = (pixel + vec2(0.5)) / u_resolution * 2.0 - 1.0; // 正規化裝置座標
+    const vec4 clip = vec4(ndc, -1.0, 1.0);   // 裁剪空間座標
     vec4 eye = invViewProj * clip;      // 轉換到相機空間
     eye /= eye.w;                       // 齊次坐標歸一化
     return normalize(eye.xyz - camera.position);
@@ -492,18 +501,20 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
         }
         Material material = hit.material;
 
-        if (material.type == LIGHT) {
+        if (material.type == LIGHT)
+        {
             float lightAttenuation = calculateAttenuation(hit.t);
             brightness_score += rayColor * hit.color * lightAttenuation;
         }
-
-        // 玻璃
-        if (material.type == GLASS) {
+        else if (material.type == GLASS)
+        {
             float ior = material.ior;
             float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
             ray.direction = refract(ray.direction, hit.shadingNormal, eta);
             rayColor *= max(vec3(0.8), hit.color) * 0.98;
-        } else {
+        }
+        else
+        {
             // 漫反射 + 高光
             vec2 seed = hit.point.xy + float(depth) + sampleIndex;
             vec3 viewDir = -ray.direction;
@@ -531,14 +542,15 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
 void main()
 {
     // 取得像素座標
-    vec2 pixel = gl_GlobalInvocationID.xy;
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     // 邊界檢查
-    if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
+    if (pixel.x >= int(u_resolution.x) || pixel.y >= int(u_resolution.y)) return;
 
     vec3 color = vec3(0.0);
+    const float ran = random(u_time);
 
     for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
-        vec2 jitter = random_vec2(pixel + float(s)) - 0.5;
+        const vec2 jitter = random_vec2(pixel + float(s) + ran) - 0.5;
         Ray ray;
         ray.origin = camera.position;
         ray.direction = getRayDir(pixel + jitter);
@@ -546,5 +558,12 @@ void main()
     }
     // 平均多重採樣結果
     color /= float(SAMPLES_PER_PIXEL);
-    imageStore(screenTexture, ivec2(pixel), vec4(color, 1.0));
+
+    // 若相機靜止，讀取上一偵顏色並混合
+    if (!cameraUpdated) {
+        const vec3 prevColor = texture(prevFrameTexture, (pixel + 0.5) / u_resolution).rgb;
+        color = mix(prevColor, color, alpha);
+    }
+
+    imageStore(screenTexture, pixel, vec4(color, 1.0));
 }

@@ -86,15 +86,6 @@ namespace XEngine
 
 		glDeleteShader(computeShaderId);
 
-		glGenTextures(1, &mTexture);
-		glBindTexture(GL_TEXTURE_2D, mTexture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, mWidth, mHeight, 0, GL_RGBA, GL_FLOAT, nullptr);
-		glBindImageTexture(0, mTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-
 	}
 
 	void ComputeShader::bind()
@@ -122,10 +113,10 @@ namespace XEngine
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	}
 
-	void ComputeShader::DispatchCompute()
+	void ComputeShader::DispatchCompute(uint32_t outputTexture)
 	{
 		glUseProgram(mProgramId);
-		glBindImageTexture(0, mTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+		glBindImageTexture(0, outputTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 		glDispatchCompute((mWidth + 15) / 16, (mHeight + 15) / 16, 1);
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 	}
@@ -201,6 +192,23 @@ namespace XEngine
 		setUniformFloat3(name + ".lookat", camera.lookat);
 		setUniformFloat3(name + ".up", camera.up);
 		setUniformFloat1(name + ".fov", camera.fov);
+	}
+
+	uint32_t ComputeShader::createTexture(int width, int height) {
+		uint32_t tex;
+		glGenTextures(1, &tex);
+		glBindTexture(GL_TEXTURE_2D, tex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		return tex;
+	}
+
+	void ComputeShader::bindImageTexture(uint32_t textureID, int binding) {
+		glBindImageTexture(binding, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 	}
 
 	void ComputeShader::bindTexture(uint32_t textureID, int textureUnit)

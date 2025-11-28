@@ -34,7 +34,7 @@ namespace XEngine
 			~ComputeShader();
 
 			void createSSBO(uint32_t& ssbo, uint32_t size, const void* data, uint32_t binding);
-			void DispatchCompute();
+			void DispatchCompute(uint32_t outputTexture);
 
 			void bind();
 			void unbind();
@@ -55,9 +55,9 @@ namespace XEngine
 
 			void setUniformCamera(const std::string& baseName, const Camera& cam);
 
+			uint32_t createTexture(int width, int height);
+			void bindImageTexture(uint32_t textureID, int binding);
 			void bindTexture(uint32_t textureID, int textureUnit);
-
-			inline uint32_t getTexture() const { return mTexture; }
 
 			void createDebugSSBO(uint32_t binding);
 
@@ -74,7 +74,6 @@ namespace XEngine
 		private:
 			std::unordered_map<std::string, int> mUniformLocations;
 			std::string shaderCode;
-			uint32_t mTexture;
 			uint32_t mProgramId;
 			uint32_t mWidth;
 			uint32_t mHeight;

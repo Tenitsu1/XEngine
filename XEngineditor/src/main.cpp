@@ -42,6 +42,9 @@ private:
 	GLuint mMatToTexMapSSBO = 0;
 	std::vector<int> matToTexMap;
 
+	GLuint mScreenTextures[2] = {0, 0};
+	int mCurrentFrame = 0;
+
 	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
 	uint64_t laseTime = 0;
 	float deltaTime = 0;
@@ -56,6 +59,7 @@ private:
 	int samples_per_pixel = 1;
 	int max_depth = 5;
 	Camera camera;
+	bool cameraUpdated = false;
 	float lastX = 640, lastY = 450;
 
 	bool useOBVH = true;
@@ -75,6 +79,8 @@ public:
 
 	void initialize() override
 	{
+		int width = getWindowProperties().width;
+		int height = getWindowProperties().height;
 
 		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\boxWithDog\\scene.gltf");
 		auto& Mesh = mModel->getMesh();
@@ -111,7 +117,7 @@ public:
 
 		triangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
-		mShader->createTexture(getWindowProperties().width, getWindowProperties().height);
+		mShader->createTexture(width, height);
 		mShader->setFBO();
 		mShader->setVAO();
 		mShader->setVBO();
@@ -125,8 +131,10 @@ public:
 		unsigned int quadIndices[] = { 0, 1, 2, 0, 2, 3 };
 		mShader->setEBO(quadIndices, sizeof(quadIndices));
 		mShader->bind(quadVertices, 4, 4);
-		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", getWindowProperties().width, getWindowProperties().height);
-		mShader->bindTexture(mComputeShader->getTexture(), 0, "screenTexture");
+		mComputeShader = std::make_shared<ComputeShader>("shaders\\default.comp", width, height);
+		mScreenTextures[0] = mComputeShader->createTexture(width, height);
+		mScreenTextures[1] = mComputeShader->createTexture(width, height);
+
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
 
 		if (!mtinyModel.materials.empty())
@@ -143,15 +151,15 @@ public:
 
 		if (triangleCount > 0)
 		{
-			mComputeShader->createSSBO(mOBVHSSBO,         (uint32_t)obvhNodes.size()         * sizeof(OBVH::OBVHNode), obvhNodes.data(),         1);
-			mComputeShader->createSSBO(mVerticesSSBO,     (uint32_t)Mesh.vertices.size()     * sizeof(glm::vec4),      Mesh.vertices.data(),     2);	
-			mComputeShader->createSSBO(mIndicesSSBO,      (uint32_t)Mesh.indices.size()      * sizeof(glm::ivec4),     Mesh.indices.data(),      3);
-			mComputeShader->createSSBO(mFaceNormalsSSBO,  (uint32_t)Mesh.faceNormals.size()  * sizeof(glm::vec4),      Mesh.faceNormals.data(),  4);
+			mComputeShader->createSSBO(mOBVHSSBO,         (uint32_t)obvhNodes.size()         * sizeof(OBVH::OBVHNode), obvhNodes.data(),         2);
+			mComputeShader->createSSBO(mVerticesSSBO,     (uint32_t)Mesh.vertices.size()     * sizeof(glm::vec4),      Mesh.vertices.data(),     3);	
+			mComputeShader->createSSBO(mIndicesSSBO,      (uint32_t)Mesh.indices.size()      * sizeof(glm::ivec4),     Mesh.indices.data(),      4);
+			mComputeShader->createSSBO(mFaceNormalsSSBO,  (uint32_t)Mesh.faceNormals.size()  * sizeof(glm::vec4),      Mesh.faceNormals.data(),  5);
 			mComputeShader->createSSBO(mNormalsSSBO,      (uint32_t)Mesh.normals.size()      * sizeof(glm::vec4),      Mesh.normals.data(),      9);
 
 			if (!Mesh.texCoords.empty()) 
 			{
-				mComputeShader->createSSBO(mTexCoordsSSBO, (uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.data(), 5);
+				mComputeShader->createSSBO(mTexCoordsSSBO, (uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.data(), 6);
 			}
 			else 
 			{
@@ -231,13 +239,31 @@ public:
 		
 
 		// Camera Updata
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) { camera.position -= keySpeed * camera.lookat * deltaTimeMax; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) { camera.position += keySpeed * camera.lookat * deltaTimeMax; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) { camera.position -= glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) { camera.position += glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) { ykeyOffset += keySpeed * deltaTimeMax; }
-		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) { ykeyOffset -= keySpeed * deltaTimeMax; }
-
+		cameraUpdated = false;
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_DOWN)) {
+			cameraUpdated = true;
+			camera.position -= keySpeed * camera.lookat * deltaTimeMax;
+		}
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_UP)) {
+			cameraUpdated = true;
+			camera.position += keySpeed * camera.lookat * deltaTimeMax;
+		}
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_LEFT)) {
+			cameraUpdated = true;
+			camera.position -= glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax;
+		}
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_RIGHT)) {
+			cameraUpdated = true;
+			camera.position += glm::normalize(glm::cross(camera.lookat, camera.up)) * keySpeed * deltaTimeMax;
+		}
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_SPACE)) {
+			cameraUpdated = true;
+			ykeyOffset += keySpeed * deltaTimeMax;
+		}
+		if (input::Keyboard::key(XENGINE_INPUT_KEY_LSHIFT)) {
+			cameraUpdated = true;
+			ykeyOffset -= keySpeed * deltaTimeMax;
+		}
 		/*float xkeyOffset = input::Mouse::dX();
 		float ykeyOffset = input::Mouse::dY();
 		float sensitivity = 0.1f;
@@ -276,12 +302,23 @@ public:
 		// Compute Shader setup
 		mComputeShader->bind();
 		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
+		mComputeShader->setUniformFloat1("u_time", (float)nowTime / 1000.0f);
 		mComputeShader->setUniformCamera("camera", camera);
+		mComputeShader->setUniformBool("cameraUpdated", cameraUpdated);
 		mComputeShader->setUniformMat4("invViewProj", invViewProj);
 		mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
 		mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
 		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
 		mComputeShader->setUniformBool("useOBVH", useOBVH);
+
+		mCurrentFrame = 1 - mCurrentFrame;
+		GLuint writeTex = mScreenTextures[mCurrentFrame];
+		GLuint readTex  = mScreenTextures[1 - mCurrentFrame];
+
+		// 綁定 image2D 作為輸出
+		mComputeShader->bindImageTexture(writeTex, 0);
+		// 綁定上一偵作為 sampler2D 輸入
+		mComputeShader->bindTexture(readTex, 1); // 1 = prevFrameTexture 的 binding
 
 		const auto& textures = mModel->getTextures();
 		if (!textures.empty())
@@ -302,7 +339,9 @@ public:
 
 	void render() override
 	{
-		mComputeShader->DispatchCompute();
+		uint32_t writeTex = mScreenTextures[mCurrentFrame];
+		mComputeShader->DispatchCompute(writeTex);
+		mShader->bindTexture(writeTex, 0, "screenTexture");
 		mShader->draw(getWindowProperties().width, getWindowProperties().height);
 	}
 
