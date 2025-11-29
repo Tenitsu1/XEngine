@@ -436,15 +436,6 @@ bool hit_world(Ray ray, out HitRecord hit) {
     hit.geoNormal = geo_frontFace ? geoNormal : -geoNormal;
     hit.shadingNormal = frontFace ? normal : -normal;
 
-<<<<<<< HEAD
-    const int material = index.w;
-    hit.material = getMaterial(material);
-    if (material == LIGHT) 
-    {
-        hit.color = WHITE * 5.0; // 光源顏色為白色
-        return true;
-    }
-=======
     // --- [關鍵修改] 材質讀取 ---
     // 1. 從 SSBO 獲取 ID
     int matID = materialIndices[hitIdx];
@@ -461,7 +452,6 @@ bool hit_world(Ray ray, out HitRecord hit) {
 
     // 4. 計算並儲存顏色 (這樣 trace_ray 不用再算一次紋理)
     hit.color = getBaseColor(mat, hitUV);
->>>>>>> dfcb3d50766a831df5eb3e5aed58bd05e2c36c93
 
     return true;
 }
@@ -542,25 +532,6 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
             vec3 F0 = vec3(0.04); 
             F0 = mix(F0, hit.color, material.metallicFactor);
 
-<<<<<<< HEAD
-            // PBR 能量守恆
-            vec3 F0 = (material.type == METAL) ? hit.color : vec3(0.04);
-
-            // 隨機選擇漫反射或高光方向
-            float specularChance = 0.05;
-            if (random(seed + 2.0) < specularChance) {
-                // 高光反射
-                ray.direction = reflect(viewDir, hit.shadingNormal);
-                vec3 specular = GGX_Specular(hit.shadingNormal, viewDir, ray.direction, material.roughness, F0);
-                rayColor *= specular;
-            } else {
-                // 漫反射
-                ray.direction = halfDir;
-                vec3 halfVec = normalize(viewDir + ray.direction);
-                vec3 F = F_Schlick(max(dot(viewDir, halfVec), 0.0), F0);
-                vec3 diffuse = hit.color * (1.0 - max(F.r, max(F.g, F.b)));
-                rayColor *= diffuse;
-=======
             // 簡單的 GGX 採樣策略
             // 這裡我們用一個隨機數決定是走 Specular 還是 Diffuse
             // 實際 PBR 應該使用重要性採樣 (Importance Sampling)
@@ -590,15 +561,10 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
                 ray.direction = cosine_weighted_direction(hit.shadingNormal, seed, hit.geoNormal);
                 // 金屬幾乎不吸收漫反射顏色，非金屬則顯示 baseColor
                 rayColor *= hit.color * (1.0 - metallic);
->>>>>>> dfcb3d50766a831df5eb3e5aed58bd05e2c36c93
             }
             
             ray.origin = hit.point + hit.geoNormal * 1e-4;
         }
-<<<<<<< HEAD
-        ray.origin = hit.point + ray.direction * 1e-5;
-=======
->>>>>>> dfcb3d50766a831df5eb3e5aed58bd05e2c36c93
     }
     return brightness_score;
 }
