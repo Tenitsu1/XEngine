@@ -625,9 +625,7 @@ namespace XEngine::graphics
 					if (val.Has("emissiveStrength")) {
 						mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), (float)val.Get("emissiveStrength").GetNumberAsDouble());
 					}
-				}
-				// GLTF 的 emissiveFactor 是 vec3，我們填入 vec4 的 RGB，A 設為 1.0 或用於強度
-				
+				}				
 			}
 
 			// 5. Extensions (Transmission & IOR)

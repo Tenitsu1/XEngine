@@ -17,6 +17,7 @@ namespace XEngine
 		Shader(const char* vertexPath, const char* fragmentPath);
 		~Shader();
 
+		void bind();
 		void bind(const float* vertexArray, uint32_t vertexCount, uint32_t dimensions);
 		void unbind();
 

@@ -10,6 +10,7 @@
 #include "XEngine/graphics/structs.hpp"
 #include "XEngine/graphics/camera.hpp"
 #include "XEngine/graphics/cameraController.hpp"
+#include "XEngine/graphics/Gbuffer.h"
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
@@ -30,11 +31,29 @@ class Editor : public XEngine::App
 {
 
 private:
+
+	// Shader
 	std::shared_ptr<ComputeShader> mComputeShader;
 	std::shared_ptr<Shader> mShader;
+
+	// Model
 	tinygltf::Model mtinyModel;
 	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
+
+	// Gbuffer
+	std::shared_ptr<graphics::GBuffer> mGBuffer;
+	std::shared_ptr<Shader> mGBufferShader;
+
+	// Camera && Controller
+	Camera camera;
 	std::unique_ptr<CameraController> mCameraController;
+	float xkeyOffset = 0.f;
+	float ykeyOffset = 0.f;
+	float zkeyOffset = 5.f;
+	bool cameraUpdated = false;
+	bool GuiCameraChanged = false;
+
+	// SSBO
 	GLuint mVerticesSSBO = 0; // vertex  SSBO-ID
 	GLuint mIndicesSSBO = 0;  // indices SSBO-ID
 	GLuint mNormalsSSBO = 0;  // normal  SSBO-ID
@@ -53,20 +72,11 @@ private:
 	float deltaTime = 0;
 	int triangleCount = 0; 
 
-
-	float light = 1000.f;
-	float xkeyOffset = 0.f;
-	float ykeyOffset = 0.f;
-	float zkeyOffset = 5.f;
 	int samples_per_pixel = 1;
 	int max_depth = 5;
-	Camera camera;
-	// Camera camera;
-	bool cameraUpdated = false;
-	bool GuiCameraChanged = false;
-	float lastX = 640, lastY = 450;
 
-	bool useOBVH = false;
+	float lastX = 640, lastY = 450;
+	bool useOBVH = true;
 
 public:
 
@@ -90,45 +100,12 @@ public:
 		auto& Mesh = mModel->getMesh();
 
 		std::vector<Material> materials = mModel->getMaterials();
-		// int lightMatIdx = (int)materials.size();
-		//Material lightMat;
-		//lightMat.baseColorFactor = glm::vec4(1.0f,0.f, 1.f,1.f);
-		//lightMat.emissionFactor = glm::vec4(3.0f); // 強度 15 的白光
-		//lightMat.type = 1; // Light Type
-		//materials.push_back(lightMat);
 
-		//Mesh.materialIndices.push_back(lightMatIdx);
-		//Mesh.materialIndices.push_back(lightMatIdx);
+		mGBuffer = std::make_shared<graphics::GBuffer>();
+		if (!mGBuffer->initialize(width, height)) XENGINE_ERROR("Failed to initialize GBuffer!");
+		mGBufferShader = std::make_shared<Shader>("shaders/gbuffer.vert", "shaders/gbuffer.frag");
 
-		//// Mesh 加入平面光源 正方形
-		//float y = 7.9f;
-		//glm::vec3 c(-4.0f, y, 0.0f);
-		//glm::vec3 offset(2.0f, 0.0f, 2.0f);
-		//glm::vec3 v0 = c - offset; // 左下
-		//glm::vec3 v1 = c + glm::vec3(offset.x, 0.0f, -offset.z); // 右下
-		//glm::vec3 v2 = c + offset; // 右上
-		//glm::vec3 v3 = c + glm::vec3(-offset.x, 0.0f, offset.z); // 左上
 
-		//// 加入頂點
-		//Mesh.vertices.push_back(glm::vec4(v0, 1.0f));
-		//Mesh.vertices.push_back(glm::vec4(v1, 1.0f));
-		//Mesh.vertices.push_back(glm::vec4(v2, 1.0f));
-		//Mesh.vertices.push_back(glm::vec4(v3, 1.0f));
-
-		//// 加入法線（朝下）
-		//glm::vec3 normal(0.0f, -1.0f, 0.0f);
-		//for (int i = 0; i < 4; i++)
-		//	Mesh.faceNormals.push_back(glm::vec4(normal, 0.0f));
-
-		//// 加入索引（兩個三角形）
-		//int baseIdx = (int)Mesh.vertices.size() - 4;
-		//Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 1, baseIdx + 2, 0));
-		//Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 2, baseIdx + 3, 0));
-
-		//// 加入材質索引
-		//Mesh.materialIndices.push_back(lightMatIdx);
-		//Mesh.materialIndices.push_back(lightMatIdx);
-		
 
 		triangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
@@ -258,56 +235,173 @@ public:
 		}
 
 
-		// 計算矩陣
-		glm::mat4 view = camera.GetViewMatrix();
-		glm::mat4 projection = camera.GetProjectionMatrix((float)windowSize.x, (float)windowSize.y);
-		glm::mat4 invViewProj = glm::inverse(projection * view);
-		CameraData cameraShaderData = camera.GetShaderData();
+		//// 計算矩陣
+		//glm::mat4 view = camera.GetViewMatrix();
+		//glm::mat4 projection = camera.GetProjectionMatrix((float)windowSize.x, (float)windowSize.y);
+		//glm::mat4 invViewProj = glm::inverse(projection * view);
+		//CameraData cameraShaderData = camera.GetShaderData();
 
-		// Compute Shader setup
-		mComputeShader->bind();
-		mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
-		mComputeShader->setUniformFloat1("u_time", (float)nowTime / 1000.0f);
-		mComputeShader->setUniformCamera("camera", cameraShaderData);
-		mComputeShader->setUniformBool("cameraUpdated", cameraUpdated);
-		mComputeShader->setUniformMat4("invViewProj", invViewProj);
-		mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
-		mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
-		mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
-		mComputeShader->setUniformBool("useOBVH", useOBVH);
+		//// Compute Shader setup
+		//mComputeShader->bind();
+		//mComputeShader->setUniformFloat2("u_resolution", (float)windowSize.x, (float)windowSize.y);
+		//mComputeShader->setUniformFloat1("u_time", (float)nowTime / 1000.0f);
+		//mComputeShader->setUniformCamera("camera", cameraShaderData);
+		//mComputeShader->setUniformBool("cameraUpdated", cameraUpdated);
+		//mComputeShader->setUniformMat4("invViewProj", invViewProj);
+		//mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
+		//mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
+		//mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
+		//mComputeShader->setUniformBool("useOBVH", useOBVH);
 
-		mCurrentFrame = 1 - mCurrentFrame;
-		GLuint writeTex = mScreenTextures[mCurrentFrame];
-		GLuint readTex  = mScreenTextures[1 - mCurrentFrame];
+		//mCurrentFrame = 1 - mCurrentFrame;
+		//GLuint writeTex = mScreenTextures[mCurrentFrame];
+		//GLuint readTex  = mScreenTextures[1 - mCurrentFrame];
 
-		// 綁定 image2D 作為輸出
-		mComputeShader->bindImageTexture(writeTex, 0);
-		// 綁定上一偵作為 sampler2D 輸入
-		mComputeShader->bindTexture(readTex, 1); // 1 = prevFrameTexture 的 binding
+		//// 綁定 image2D 作為輸出
+		//mComputeShader->bindImageTexture(writeTex, 0);
+		//// 綁定上一偵作為 sampler2D 輸入
+		//mComputeShader->bindTexture(readTex, 1); // 1 = prevFrameTexture 的 binding
 
-		const auto& textures = mModel->getTextures();
-		if (!textures.empty())
-		{
-			// 最多綁定 32 個紋理
-			int max_textures_to_bind = std::min((int)textures.size(), 32);
+		//const auto& textures = mModel->getTextures();
+		//if (!textures.empty())
+		//{
+		//	// 最多綁定 32 個紋理
+		//	int max_textures_to_bind = std::min((int)textures.size(), 32);
 
-			for (int i = 0; i < max_textures_to_bind; ++i)
-			{
-				// 將紋理綁定到紋理單元 10 + i 
-				int textureUnit = 10 + i;
-				mComputeShader->bindTexture(textures[i], textureUnit);
-			}
+		//	for (int i = 0; i < max_textures_to_bind; ++i)
+		//	{
+		//		// 將紋理綁定到紋理單元 10 + i 
+		//		int textureUnit = 10 + i;
+		//		mComputeShader->bindTexture(textures[i], textureUnit);
+		//	}
 
-			mComputeShader->setUniformInt("u_texture_count", max_textures_to_bind);
-		}
+		//	mComputeShader->setUniformInt("u_texture_count", max_textures_to_bind);
+		//}
 	}
 
 	void render() override
 	{
-		uint32_t writeTex = mScreenTextures[mCurrentFrame];
+		int width = getWindowProperties().width;
+		int height = getWindowProperties().height;
+
+		glm::mat4 view = camera.GetViewMatrix();
+		glm::mat4 projection = camera.GetProjectionMatrix((float)width, (float)height);
+
+		// =============================================================
+		// Phase 1: Geometry Pass (Rasterization -> GBuffer)
+		// =============================================================
+		{
+			// 1. 綁定 GBuffer 寫入
+			mGBuffer->bindForWriting();
+
+			// 2. 設定狀態 & 清除
+			//glEnable(GL_DEPTH_TEST);
+			//// 背景色設為 0 (alpha=0)，Compute Shader 讀到 0 會視為背景/天空
+			//glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+			//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			// 3. 啟用光柵化 Shader
+			mGBufferShader->bind(); // 這裡使用修改後的無參數 bind()
+
+			// 設定矩陣
+			mGBufferShader->setUniformMat4("view", view);
+			mGBufferShader->setUniformMat4("projection", projection);
+			mGBufferShader->setUniformMat4("model", glm::mat4(1.0f));
+
+			// 重要：確保紋理單元正確
+			// 這裡假設 gbuffer.frag 中的 sampler 綁定為:
+			// texture_baseColor -> 0, texture_metallicRoughness -> 1, etc.
+			// 你可以在 Shader::bind 或初始化時設定這些 uniform int，或者在這裡設
+			mGBufferShader->setUniformInt("texture_baseColor", 0);
+			mGBufferShader->setUniformInt("texture_metallicRoughness", 1);
+			mGBufferShader->setUniformInt("texture_normal", 2);
+			mGBufferShader->setUniformInt("texture_emissive", 3);
+
+			// 4. 繪製場景
+			// 注意：這個 drawModel 會呼叫 glDrawElements
+			// 同時它需要負責綁定每個 SubMesh 對應的材質紋理到 slot 0, 1, 2, 3
+			// 如果你的 drawModel 沒有綁定紋理的邏輯，GBuffer 會讀不到紋理
+			mModel->drawModel(mtinyModel);
+
+			// 5. 解綁 GBuffer
+			//glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		}
+
+		// =============================================================
+		// Phase 2: Compute Pass (Ray Tracing)
+		// =============================================================
+		{
+			mComputeShader->bind();
+
+			// 綁定 GBuffer 紋理供讀取 (Slot 10~13)
+			// 注意：這與 default.comp 中的 layout(binding=10) 對應
+			mGBuffer->bindForReading(10);
+
+			// 綁定模型紋理 (供次級光線反射時的 hit_world 使用)
+			// 這裡假設 max 16 個紋理，綁定到 Slot 20 開始 (避免衝突)
+			// 你的 compute shader uniform sampler2D u_textures[16] binding 需要對應修改
+			// 或者簡單起見，如果 Compute Shader 邏輯不需要改太大，可以維持原樣
+			// 這裡先維持原有的 u_textures 綁定邏輯 (binding=10 in shader code, might need check)
+			// [修正]: default.comp 內 u_textures 是 binding 10，這會跟 GBuffer 衝突
+			// 請將 default.comp 內的 u_textures 改為 binding 20，並在這裡綁定到 20+
+			const auto& textures = mModel->getTextures();
+			for (int i = 0; i < std::min((int)textures.size(), 16); ++i) {
+				// 假設 Compute Shader 裡 u_textures 改成了 binding = 20
+				mComputeShader->bindTexture(textures[i], 20 + i); 
+
+				// 若暫時不改 Compute Shader 的 u_textures，會跟 GBuffer 衝突
+				// 建議：將 GBuffer 綁定到 binding 0, 1, 2, 3 (image load/store 是 binding 0，要注意)
+				// 最安全的做法：default.comp 裡 GBuffer binding = 10, 11, 12, 13
+				// u_textures binding = 14 (array)
+			}
+
+			// 設定 Uniforms
+			CameraData cameraShaderData = camera.GetShaderData();
+			glm::mat4 invViewProj = glm::inverse(projection * view);
+
+			mComputeShader->setUniformFloat2("u_resolution", (float)width, (float)height);
+			mComputeShader->setUniformFloat1("u_time", (float)nowTime / 1000.0f);
+			mComputeShader->setUniformCamera("camera", cameraShaderData);
+			mComputeShader->setUniformBool("cameraUpdated", cameraUpdated);
+			mComputeShader->setUniformMat4("invViewProj", invViewProj);
+			mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
+			mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
+			mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
+			mComputeShader->setUniformBool("useOBVH", useOBVH);
+
+			// Ping-Pong Frame Buffer
+			mCurrentFrame = 1 - mCurrentFrame;
+			GLuint writeTex = mScreenTextures[mCurrentFrame];
+			GLuint readTex = mScreenTextures[1 - mCurrentFrame];
+
+			mComputeShader->bindImageTexture(writeTex, 0); // binding 0: output image
+			mComputeShader->bindTexture(readTex, 1);       // binding 1: prev frame
+
+			mComputeShader->DispatchCompute(writeTex);
+		}
+
+		// =============================================================
+		// Phase 3: Post-Processing Pass (Display to Screen/ImGui FBO)
+		// =============================================================
+		{
+			// 取得 Compute Shader 算完的結果
+			GLuint finalImage = mScreenTextures[mCurrentFrame];
+
+			// 啟用後處理 Shader
+			mShader->bind();
+
+			// 傳入紋理 (Texture Unit 0)
+			mShader->bindTexture(finalImage, 0, "screenTexture");
+
+			// 繪製全螢幕四邊形 (寫入 mShader 內部的 FBO)
+			mShader->draw(width, height);
+		}
+
+
+		/*uint32_t writeTex = mScreenTextures[mCurrentFrame];
 		mComputeShader->DispatchCompute(writeTex);
 		mShader->bindTexture(writeTex, 0, "screenTexture");
-		mShader->draw(getWindowProperties().width, getWindowProperties().height);
+		mShader->draw(getWindowProperties().width, getWindowProperties().height);*/
 	}
 
 	void imguiRender() override
@@ -319,7 +413,40 @@ public:
 		ImGui::ShowDemoWindow();
 
 
-		if (ImGui::Begin("Test2"))
+		if (ImGui::Begin("Settings"))
+		{
+			ImGui::Text("Render Stats:");
+			ImGui::Text("FPS: %.1f (%.3f ms)", io.Framerate, 1000.0f / io.Framerate);
+			ImGui::Text("Triangles: %d", triangleCount);
+
+			ImGui::Separator();
+			ImGui::DragInt("Samples", &samples_per_pixel, 1, 1, 16);
+			ImGui::DragInt("Max Bounces", &max_depth, 1, 1, 10);
+			ImGui::Checkbox("Use OBVH", &useOBVH);
+
+			ImGui::Separator();
+			bool moved = false;
+			moved |= ImGui::DragFloat3("Cam Pos", &camera.Position.x, 0.1f);
+			if (moved) GuiCameraChanged = true;
+
+			float speed = mCameraController->GetSpeed();
+			if (ImGui::DragFloat("Cam Speed", &speed, 0.1f)) mCameraController->SetSpeed(speed);
+		}
+		ImGui::End();
+
+		/*if (ImGui::Begin("GBuffer Debug"))
+		{
+			float w = 320, h = 180;
+			ImGui::Text("Position");
+			ImGui::Image((void*)(intptr_t)mGBuffer->getTexture(graphics::Gbuffer::GBUFFER_POSITION), { w, h }, { 0,1 }, { 1,0 });
+			ImGui::Text("Normal");					
+			ImGui::Image((void*)(intptr_t)mGBuffer->getTexture(graphics::Gbuffer::GBUFFER_NORMAL), { w, h }, { 0,1 }, { 1,0 });
+			ImGui::Text("Albedo");					
+			ImGui::Image((void*)(intptr_t)mGBuffer->getTexture(graphics::Gbuffer::GBUFFER_ALBEDO), { w, h }, { 0,1 }, { 1,0 });
+		}
+		ImGui::End();*/
+
+		/*if (ImGui::Begin("Test2"))
 		{
 			ImGui::DragInt("samples_per_pixel", &samples_per_pixel, 0.1f);
 			ImGui::DragInt("max_depth", &max_depth, 0.1f);
@@ -335,7 +462,7 @@ public:
 
 			if (moved) GuiCameraChanged = true;
 		}
-		ImGui::End();
+		ImGui::End();*/
 
 		if (ImGui::Begin("Metrics/Debugger"))
 		{

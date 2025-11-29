@@ -41,6 +41,7 @@ namespace XEngine
 	}
 
 	Shader::Shader(const char* vertexPath, const char* fragmentPath)
+		: mProgramId(0), VAO(0), VBO(0), EBO(0), FBO(0), mTexture(0)
 	{
 
 		mProgramId = glCreateProgram();
@@ -118,6 +119,11 @@ namespace XEngine
 		glDeleteProgram(mProgramId);
 	}
 
+	void Shader::bind()
+	{
+		glUseProgram(mProgramId);
+	}
+
 	void Shader::bind(const float* vertexArray, uint32_t vertexCount, uint32_t dimensions) 
 	{
 		glBufferData(GL_ARRAY_BUFFER, vertexCount * dimensions * sizeof(float), vertexArray, GL_STATIC_DRAW);
@@ -134,17 +140,51 @@ namespace XEngine
 
 	void Shader::draw(int width, int height)
 	{
+		if (mProgramId == -1) return;
+
 		glUseProgram(mProgramId);
 
-		// 綁定 FBO，讓 fragment shader 輸出到 mTexture
-		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+
+		bool useInternalFBO = (FBO > 0);
+
+		if (useInternalFBO) {
+			glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+		}
+		else {
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		}
 		glViewport(0, 0, width, height);
 
-		glBindVertexArray(VAO);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		if (VAO != 0) {
+			glBindVertexArray(VAO);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+			glBindVertexArray(0);
+		}
+		else {
+			XENGINE_ERROR("Shader::draw called but VAO is not set! Call setVAO() and bind(vertices...) first.");
+		}
 
-		// 解綁 FBO，回到預設 framebuffer
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		if (useInternalFBO) {
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		}
+
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+
+		glUseProgram(0);
+
+
+		//// 綁定 FBO，讓 fragment shader 輸出到 mTexture
+		//glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+		//glViewport(0, 0, width, height);
+
+		//glBindVertexArray(VAO);
+		//glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+		//// 解綁 FBO，回到預設 framebuffer
+		//glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void Shader::setVAO()
