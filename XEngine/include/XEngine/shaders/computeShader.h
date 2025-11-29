@@ -7,7 +7,7 @@
 #include "external/glm/glm.hpp"
 #include <unordered_map>
 
-struct Camera;
+struct CameraData;
 
 namespace XEngine
 {
@@ -53,7 +53,7 @@ namespace XEngine
 			void setUniformMat3(const std::string& name, const glm::mat3& mat);
 			void setUniformMat4(const std::string& name, const glm::mat4& mat);
 
-			void setUniformCamera(const std::string& baseName, const Camera& cam);
+			void setUniformCamera(const std::string& name, const CameraData& camera);
 
 			uint32_t createTexture(int width, int height);
 			void bindImageTexture(uint32_t textureID, int binding);

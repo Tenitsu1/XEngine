@@ -25,21 +25,24 @@ struct Ray {
 };
 
 struct Material {
-    int type;                       // 材質類型
-    vec3 baseColor;                 // 基础颜色因子
-    int baseColorTexture;           // 基础颜色贴图
-    int metallic;                   // 金属度因子
-    float roughness;                // 粗糙度因子
-    int metallicRoughnessTexture;   // 金属度-粗糙度贴图
-    int normalTexture;              // 法线贴图
-    float transmission;             // 透射率
-    float ior;                      // 折射率
+    vec4 baseColorFactor;         // 基礎顏色因子　　　16 bytes
+    vec4 emissionFactor;          // 發光顏色或強度　　16 bytes
+                                  
+    float metallicFactor;         // 金屬度因子　　　　　4 bytes
+    float roughnessFactor;        // 粗糙度因子　　　　　4 bytes
+    float transmissionFactor;     // 透射率　　　　　　　4 bytes
+    float ior;                    // 折射率　　　　　　　4 bytes
+
+    int baseColorTexture;         // 基礎顏色紋理　　　　4 bytes 
+    int metallicRoughnessTexture; // 金屬度與粗糙度紋理　4 bytes 
+    int normalTexture;            // 法向量貼圖　　　　　4 bytes 
+    int type;                     // 材質類型  　　　　　4 bytes  (0: PBR, 1: Light)
 };
 
 struct HitRecord {
     vec3 point;
     vec3 color;
-    Material material;
+    int materialID;
     float t;
     vec3 shadingNormal; 
     vec3 geoNormal;     
@@ -69,16 +72,13 @@ layout(std430, binding = 7) buffer MaterialIndicesBuffer {
     int materialIndices[];
 };
 
-layout(std430, binding = 8) buffer MatToTexMapBuffer {
-    int matToTexMap[];
+layout(std430, binding = 8) buffer MaterialsBuffer {
+    Material materials[];
 };
 
 layout(std430, binding = 9) buffer VertexNormalsBuffer {
     vec4 vertexNormals[];
 };
-
-
-
 
 layout(binding = 10) uniform sampler2D u_textures[16]; 
 
@@ -226,31 +226,22 @@ vec3 sample_rect_light(vec3 center, vec3 normal, float size, vec2 seed) {
 
 // ------------------------------------------------
 // 材質類型常數
-const int TEXTURE = -1;
-const int LIGHT = 0;
-const int DIFFUSE = 1;
-const int GLASS = 2;
-const int METAL = 3;
+const int PBR   = 0;
+const int LIGHT = 1;
 
-// 取得材質屬性函式
-Material getMaterial(int material) {
-    Material mat;
-    if (material == LIGHT) {
-        mat.type = LIGHT;
-    } else if (material == DIFFUSE) {
-        mat.type = DIFFUSE;
-        mat.roughness = 0.8;
-    } else if (material == GLASS) {
-        mat.type = GLASS;
-        mat.ior = 1.5;
-    } else if (material == METAL) {
-        mat.type = METAL;
-        mat.roughness = 0.2;
-    } else {
-        mat.type = DIFFUSE;
-        mat.roughness = 0.8;
+
+
+// 輔助函數：獲取基礎顏色 (混合紋理與因子)
+vec3 getBaseColor(Material mat, vec2 uv) {
+    vec3 color = mat.baseColorFactor.rgb;
+    
+    if (mat.baseColorTexture >= 0) {
+        // 限制索引範圍，防止越界
+        int texID = min(mat.baseColorTexture, 15); 
+        // 注意：這裡假設 sampler2D u_textures 已經正確綁定
+        color *= texture(u_textures[texID], uv).rgb;
     }
-    return mat;
+    return color;
 }
 
 // ------------------------------------------------
@@ -326,29 +317,6 @@ bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
     return exit >= max(entry, 0.0) && entry < tMax;
 }
 
-vec3 get_texture_color(int i, float u, float v) {
-    // 從 SSBO 中獲取當前Mesh的材質索引
-    const int matIndex = materialIndices[i];
-    if (matIndex < 0) {
-        return vec3(0.5); // 灰色表示無材質
-    }
-
-    // 從材質索引映射到紋理索引
-    const int textureIndex = matToTexMap[matIndex];
-    if (textureIndex < 0) {
-        return vec3(1.0, 0.0, 1.0); // 紫色表示沒有紋理
-    }
-
-    const ivec4 index = indices[i];
-    const vec2 uv0 = texCoords[index.x];
-    const vec2 uv1 = texCoords[index.y];
-    const vec2 uv2 = texCoords[index.z];
-
-    // 內插 UV 座標並從紋理採樣
-    const vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
-
-    return texture(u_textures[textureIndex], hitUV).rgb;
-}
 
 bool hit_obvh_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
     const bool doubleSided = false;
@@ -468,6 +436,7 @@ bool hit_world(Ray ray, out HitRecord hit) {
     hit.geoNormal = geo_frontFace ? geoNormal : -geoNormal;
     hit.shadingNormal = frontFace ? normal : -normal;
 
+<<<<<<< HEAD
     const int material = index.w;
     hit.material = getMaterial(material);
     if (material == LIGHT) 
@@ -475,13 +444,25 @@ bool hit_world(Ray ray, out HitRecord hit) {
         hit.color = WHITE * 5.0; // 光源顏色為白色
         return true;
     }
+=======
+    // --- [關鍵修改] 材質讀取 ---
+    // 1. 從 SSBO 獲取 ID
+    int matID = materialIndices[hitIdx];
+    hit.materialID = matID;
 
-    if (material == TEXTURE) 
-    {
-        // 從紋理採樣顏色
-        hit.color = get_texture_color(hitIdx, u, v);
-        return true;
-    }
+    // 2. 獲取具體材質數據
+    Material mat = materials[matID];
+
+    // 3. 計算 UV
+    const vec2 uv0 = texCoords[index.x];
+    const vec2 uv1 = texCoords[index.y];
+    const vec2 uv2 = texCoords[index.z];
+    vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
+
+    // 4. 計算並儲存顏色 (這樣 trace_ray 不用再算一次紋理)
+    hit.color = getBaseColor(mat, hitUV);
+>>>>>>> dfcb3d50766a831df5eb3e5aed58bd05e2c36c93
+
     return true;
 }
 
@@ -508,27 +489,60 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
             // color += attenuation * sky;
             break;
         }
-        Material material = hit.material;
 
-        if (material.type == LIGHT)
+        // 從 SSBO 讀取材質屬性
+        Material material = materials[hit.materialID];
+
+        // 1. 處理光源 (Emission)
+        // 無論是 Light Type 還是 PBR 物件有自發光，都加上去
+        if (material.type == LIGHT || length(material.emissionFactor.rgb) > 0.0)
         {
             float lightAttenuation = calculateAttenuation(hit.t);
-            brightness_score += rayColor * hit.color * lightAttenuation;
+            // emissionFactor.a 可以當作強度 multiplier
+            vec3 emission = material.emissionFactor.rgb * material.emissionFactor.a;
+            
+            // 只有當面朝向我們時才看到光 (單面光)
+            if (dot(hit.geoNormal, ray.direction) < 0.0) {
+                 brightness_score += rayColor * emission * lightAttenuation;
+            }
+            
+            // 如果是純光源類型，停止反彈
+            if (material.type == LIGHT) break; 
         }
-        else if (material.type == GLASS)
+
+        // 2. 處理透射 (Transmission / Glass)
+        if (material.transmissionFactor > 0.0)
         {
             float ior = material.ior;
             float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
-            ray.direction = refract(ray.direction, hit.shadingNormal, eta);
-            rayColor *= max(vec3(0.8), hit.color) * 0.98;
+            
+            vec3 bias = hit.geoNormal * 1e-4; // 偏移量
+            vec3 refracted = refract(ray.direction, hit.shadingNormal, eta);
+            
+            // 簡單處理：如果發生全反射 (Total Internal Reflection)，refract 返回 0
+            if (length(refracted) == 0.0) {
+                ray.direction = reflect(ray.direction, hit.shadingNormal);
+                ray.origin = hit.point + bias;
+            } else {
+                // 這裡可以使用 Fresnel 混合反射和折射，這裡簡化為根據 transmission 機率決定
+                // 或者簡單地直接折射
+                ray.direction = refracted;
+                ray.origin = hit.point - bias; // 折射起始點在物體內部/另一側
+            }
+            
+            rayColor *= hit.color; // 玻璃顏色
         }
+        // 3. 處理不透明物體 (PBR: Diffuse + Specular)
         else
         {
-            // 漫反射 + 高光
             vec2 seed = hit.point.xy + float(depth) + sampleIndex;
             vec3 viewDir = -ray.direction;
-            vec3 halfDir = cosine_weighted_direction(hit.shadingNormal, seed, hit.geoNormal);
+            
+            // 基礎 F0 反射率 (非金屬 0.04，金屬則是 baseColor)
+            vec3 F0 = vec3(0.04); 
+            F0 = mix(F0, hit.color, material.metallicFactor);
 
+<<<<<<< HEAD
             // PBR 能量守恆
             vec3 F0 = (material.type == METAL) ? hit.color : vec3(0.04);
 
@@ -546,9 +560,45 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
                 vec3 F = F_Schlick(max(dot(viewDir, halfVec), 0.0), F0);
                 vec3 diffuse = hit.color * (1.0 - max(F.r, max(F.g, F.b)));
                 rayColor *= diffuse;
+=======
+            // 簡單的 GGX 採樣策略
+            // 這裡我們用一個隨機數決定是走 Specular 還是 Diffuse
+            // 實際 PBR 應該使用重要性採樣 (Importance Sampling)
+            
+            // 金屬度越高，漫反射越少
+            float metallic = material.metallicFactor;
+            float roughness = material.roughnessFactor;
+
+            // 決定反射機率 (Fresnel 近似)
+            float specularProb = mix(0.04, 1.0, metallic); 
+            
+            if (random(seed + 1.3) < specularProb) {
+                // === Specular path ===
+                vec3 reflected = reflect(ray.direction, hit.shadingNormal);
+                // 根據 roughness 擾動反射方向
+                vec3 jitter = random_unit_vector(seed) * roughness;
+                ray.direction = normalize(reflected + jitter);
+                
+                // 確保不射入表面內部
+                if (dot(ray.direction, hit.geoNormal) <= 0.0) ray.direction = reflected;
+
+                // 簡單能量補償
+                rayColor *= mix(vec3(1.0), hit.color, metallic); 
+            } 
+            else {
+                // === Diffuse path ===
+                ray.direction = cosine_weighted_direction(hit.shadingNormal, seed, hit.geoNormal);
+                // 金屬幾乎不吸收漫反射顏色，非金屬則顯示 baseColor
+                rayColor *= hit.color * (1.0 - metallic);
+>>>>>>> dfcb3d50766a831df5eb3e5aed58bd05e2c36c93
             }
+            
+            ray.origin = hit.point + hit.geoNormal * 1e-4;
         }
+<<<<<<< HEAD
         ray.origin = hit.point + ray.direction * 1e-5;
+=======
+>>>>>>> dfcb3d50766a831df5eb3e5aed58bd05e2c36c93
     }
     return brightness_score;
 }
