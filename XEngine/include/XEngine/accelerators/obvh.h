@@ -27,13 +27,16 @@ namespace XEngine::OBVH {
 
     struct BVHNode {
         glm::vec3 aabbMin;
+        float padding1;
         glm::vec3 aabbMax;
-        int left;   // 左子節點索引，-1表示無
-        int right;  // 右子節點索引，-1表示無
-        int start;  // 三角形起始索引（葉節點）
-        int count;  // 三角形數量（葉節點）
+        float padding2;
+        int left = -1;   // 左子節點索引，-1表示無
+        int right = -1;  // 右子節點索引，-1表示無
+        int start = -1;  // 三角形起始索引（葉節點）
+        int count = 0;  // 三角形數量（葉節點）
     };
 
+    std::vector<BVHNode> buildBVH(Mesh& mesh);
     std::vector<OBVHNode> buildOBVH(Mesh& mesh);
     Mesh mergeMeshes(const std::vector<Mesh>& meshes);
 }

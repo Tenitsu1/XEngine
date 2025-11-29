@@ -66,7 +66,7 @@ private:
 	bool GuiCameraChanged = false;
 	float lastX = 640, lastY = 450;
 
-	bool useOBVH = false;
+	bool useOBVH = true;
 
 public:
 
@@ -90,46 +90,6 @@ public:
 		auto& Mesh = mModel->getMesh();
 
 		std::vector<Material> materials = mModel->getMaterials();
-		// int lightMatIdx = (int)materials.size();
-		//Material lightMat;
-		//lightMat.baseColorFactor = glm::vec4(1.0f,0.f, 1.f,1.f);
-		//lightMat.emissionFactor = glm::vec4(3.0f); // 強度 15 的白光
-		//lightMat.type = 1; // Light Type
-		//materials.push_back(lightMat);
-
-		//Mesh.materialIndices.push_back(lightMatIdx);
-		//Mesh.materialIndices.push_back(lightMatIdx);
-
-		//// Mesh 加入平面光源 正方形
-		//float y = 7.9f;
-		//glm::vec3 c(-4.0f, y, 0.0f);
-		//glm::vec3 offset(2.0f, 0.0f, 2.0f);
-		//glm::vec3 v0 = c - offset; // 左下
-		//glm::vec3 v1 = c + glm::vec3(offset.x, 0.0f, -offset.z); // 右下
-		//glm::vec3 v2 = c + offset; // 右上
-		//glm::vec3 v3 = c + glm::vec3(-offset.x, 0.0f, offset.z); // 左上
-
-		//// 加入頂點
-		//Mesh.vertices.push_back(glm::vec4(v0, 1.0f));
-		//Mesh.vertices.push_back(glm::vec4(v1, 1.0f));
-		//Mesh.vertices.push_back(glm::vec4(v2, 1.0f));
-		//Mesh.vertices.push_back(glm::vec4(v3, 1.0f));
-
-		//// 加入法線（朝下）
-		//glm::vec3 normal(0.0f, -1.0f, 0.0f);
-		//for (int i = 0; i < 4; i++)
-		//	Mesh.faceNormals.push_back(glm::vec4(normal, 0.0f));
-
-		//// 加入索引（兩個三角形）
-		//int baseIdx = (int)Mesh.vertices.size() - 4;
-		//Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 1, baseIdx + 2, 0));
-		//Mesh.indices.push_back(glm::ivec4(baseIdx, baseIdx + 2, baseIdx + 3, 0));
-
-		//// 加入材質索引
-		//Mesh.materialIndices.push_back(lightMatIdx);
-		//Mesh.materialIndices.push_back(lightMatIdx);
-		
-
 		triangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mShader->createTexture(width, height);
@@ -151,11 +111,13 @@ public:
 		mScreenTextures[1] = mComputeShader->createTexture(width, height);
 
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
+		auto bvhNodes = OBVH::buildBVH(Mesh);
 
 
 		if (triangleCount > 0)
 		{
-			mComputeShader->createSSBO(mOBVHSSBO,         (uint32_t)obvhNodes.size()         * sizeof(OBVH::OBVHNode), obvhNodes.data(),         2);
+			mComputeShader->createSSBO(mOBVHSSBO,         (uint32_t)bvhNodes.size()         * sizeof(OBVH::BVHNode), bvhNodes.data(),         2);
+			// mComputeShader->createSSBO(mOBVHSSBO,         (uint32_t)obvhNodes.size()         * sizeof(OBVH::OBVHNode), obvhNodes.data(),         2);
 			mComputeShader->createSSBO(mVerticesSSBO,     (uint32_t)Mesh.vertices.size()     * sizeof(glm::vec4),      Mesh.vertices.data(),     3);	
 			mComputeShader->createSSBO(mIndicesSSBO,      (uint32_t)Mesh.indices.size()      * sizeof(glm::ivec4),     Mesh.indices.data(),      4);
 			mComputeShader->createSSBO(mFaceNormalsSSBO,  (uint32_t)Mesh.faceNormals.size()  * sizeof(glm::vec4),      Mesh.faceNormals.data(),  5);
@@ -187,7 +149,7 @@ public:
 					materials.data(), 8);
 			}
 			
-			 {
+			{
 				XENGINE_TRACE("Vertices SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.size());
 				XENGINE_TRACE("Indices SSBO created, size: {}, count: {}",
@@ -200,7 +162,10 @@ public:
 					(uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.size());
 				XENGINE_TRACE("MaterialIndices SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.materialIndices.size() * sizeof(int), Mesh.materialIndices.size());
-				
+				XENGINE_TRACE("MaterialData SSBO created, size: {}, count: {}",
+					(uint32_t)materials.size() * sizeof(Material), materials.size());
+				XENGINE_TRACE("OBVH Nodes SSBO created, size: {}, count: {}",
+					(uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.size());
 			} 
 		}
 

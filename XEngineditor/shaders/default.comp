@@ -12,6 +12,15 @@ struct OBVHNode {
     ivec4 info;     // x=(1 leaf, -1 not leaf) , z=start, w=count
 };
 
+struct BVHNode {
+    vec4 aabbMin;
+    vec4 aabbMax;
+    int left;   // 左子節點索引，-1表示無
+    int right;  // 右子節點索引，-1表示無
+    int start;  // 三角形起始索引（葉節點）
+    int count;  // 三角形數量（葉節點）
+};
+
 struct Camera {
     vec3 position;
     vec3 lookat;
@@ -48,8 +57,12 @@ struct HitRecord {
     vec3 geoNormal;     
 };
 
-layout(std430, binding = 2) buffer OBVHNodeBuffer {
-    OBVHNode obvhNodes[];
+// layout(std430, binding = 2) buffer OBVHNodeBuffer {
+//     OBVHNode obvhNodes[];
+// };
+
+layout(std430, binding = 2) buffer BVHNodeBuffer {
+    BVHNode bvhNodes[];
 };
 
 layout(std430, binding = 3) buffer VerticesBuffer {
@@ -95,9 +108,11 @@ uniform vec3 backgroundColor;
 uniform bool useOBVH;
 // ------------------------------------------------
 
+const int MAX_STACK_SIZE = 16;
 const float EPSILON = 1e-10;
 const vec3 WHITE = vec3(1.0, 1.0, 1.0);
 const float alpha = 0.05; // 混合係數
+vec3 ERROR_COLOR = vec3(0.0);
 
 // 定義隨機數生成函數
 uint hash( uint x ) {
@@ -318,7 +333,7 @@ bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
 }
 
 
-bool hit_obvh_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
+bool hit_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
     const bool doubleSided = false;
     const ivec4 index = indices[i];
     const vec3 p0 = vertices[index.x].xyz;
@@ -337,49 +352,115 @@ bool hit_obvh_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
     }
 }
 
-int hit_obvh(Ray ray, out vec3 hitResult) {
+// int hit_obvh(Ray ray, out vec3 hitResult) {
+//     float tMax = 1e9;
+//     int hitIdx = -1;
+
+//     int stack[MAX_STACK_SIZE];
+//     int stackPtr = 0;
+//     stack[stackPtr++] = 0; // root node
+
+//     while (stackPtr > 0) {
+//         if (tMax < EPSILON) break;
+//         const int nodeIdx = stack[--stackPtr];
+//         OBVHNode node = obvhNodes[nodeIdx];
+
+//         if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, tMax)) {
+//             continue;
+//         }
+
+//         const bool isLeaf = (node.info.w != -1);
+
+//         if (isLeaf)
+//         {
+//             // 處理葉節點中的所有三角形
+//             const int start = node.info.z;
+//             const int count = node.info.w;
+//             for (int i = start; i < start + count; i++) 
+//             {   
+//                 vec3 tempHitResult;
+//                 if (hit_leaf(ray, i, tMax, tempHitResult)) 
+//                 {
+//                     hitIdx = i;
+//                     hitResult = tempHitResult;
+//                 }
+//             }
+//         }
+//         else
+//         {
+//             const ivec4 top = node.top;
+//             const ivec4 bottom = node.bottom;
+//             if (stackPtr + 8 >= MAX_STACK_SIZE) {
+//                 int counter = 0;
+//                 for (int i = 0; i < 4; i++) {
+//                     if (top[i] >= 0) counter++;
+//                     if (bottom[i] >= 0) counter++;
+//                 }
+//                 if (stackPtr + counter >= MAX_STACK_SIZE) {
+//                     ERROR_COLOR = vec3(1.0, 0.0, 1.0);
+//                     return -1;
+//                 }
+//             }
+//             if (top.x >= 0) stack[stackPtr++] = top.x;
+//             if (top.y >= 0) stack[stackPtr++] = top.y;
+//             if (top.z >= 0) stack[stackPtr++] = top.z;
+//             if (top.w >= 0) stack[stackPtr++] = top.w;
+//             if (bottom.x >= 0) stack[stackPtr++] = bottom.x;
+//             if (bottom.y >= 0) stack[stackPtr++] = bottom.y;
+//             if (bottom.z >= 0) stack[stackPtr++] = bottom.z;
+//             if (bottom.w >= 0) stack[stackPtr++] = bottom.w;
+//         }
+//     }
+//     return hitIdx;
+// }
+
+int hit_bvh(Ray ray, out vec3 hitResult) {
     float tMax = 1e9;
     int hitIdx = -1;
 
-    int stack[64];
+    int stack[MAX_STACK_SIZE];
     int stackPtr = 0;
     stack[stackPtr++] = 0; // root node
 
     while (stackPtr > 0) {
         if (tMax < EPSILON) break;
-        int nodeIdx = stack[--stackPtr];
-        OBVHNode node = obvhNodes[nodeIdx];
+        const int nodeIdx = stack[--stackPtr];
+        BVHNode node = bvhNodes[nodeIdx];
 
         if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, tMax)) {
             continue;
         }
 
-        const bool isLeaf = (node.info.x == 1);
+        const bool isLeaf = (node.count > 0);
 
-        if (isLeaf) {
+        if (isLeaf)
+        {
             // 處理葉節點中的所有三角形
-            const int start = node.info.z;
-            const int count = node.info.w;
+            const int start = node.start;
+            const int count = node.count;
             for (int i = start; i < start + count; i++) 
             {   
                 vec3 tempHitResult;
-                if (hit_obvh_leaf(ray, i, tMax, tempHitResult)) 
+                if (hit_leaf(ray, i, tMax, tempHitResult)) 
                 {
                     hitIdx = i;
                     hitResult = tempHitResult;
                 }
             }
-        } else {
-            const ivec4 top = node.top;
-            const ivec4 bottom = node.bottom;
-            if (top.x >= 0) stack[stackPtr++] = top.x;
-            if (top.y >= 0) stack[stackPtr++] = top.y;
-            if (top.z >= 0) stack[stackPtr++] = top.z;
-            if (top.w >= 0) stack[stackPtr++] = top.w;
-            if (bottom.x >= 0) stack[stackPtr++] = bottom.x;
-            if (bottom.y >= 0) stack[stackPtr++] = bottom.y;
-            if (bottom.z >= 0) stack[stackPtr++] = bottom.z;
-            if (bottom.w >= 0) stack[stackPtr++] = bottom.w;
+        }
+        else
+        {
+            if (node.left >= 0) stack[stackPtr++] = node.left;
+            if (stackPtr >= MAX_STACK_SIZE) {
+                ERROR_COLOR = vec3(1.0, 0.0, 1.0);
+                return -1;
+            }
+
+            if (node.right >= 0) stack[stackPtr++] = node.right;
+            if (stackPtr >= MAX_STACK_SIZE) {
+                ERROR_COLOR = vec3(1.0, 0.0, 1.0);
+                return -1;
+            }
         }
     }
     return hitIdx;
@@ -409,7 +490,7 @@ int hit_triangle(Ray ray, out vec3 hitResult) {
 
 bool hit_world(Ray ray, out HitRecord hit) {
     vec3 hitResult;
-    int hitIdx = useOBVH ? hit_obvh(ray, hitResult) : hit_triangle(ray, hitResult);
+    const int hitIdx = useOBVH ? hit_bvh(ray, hitResult) : hit_triangle(ray, hitResult);
     if (hitIdx == -1) return false;
 
     const ivec4 index = indices[hitIdx];
@@ -438,7 +519,7 @@ bool hit_world(Ray ray, out HitRecord hit) {
 
     // --- [關鍵修改] 材質讀取 ---
     // 1. 從 SSBO 獲取 ID
-    int matID = materialIndices[hitIdx];
+    const int matID = materialIndices[hitIdx];
     hit.materialID = matID;
 
     // 2. 獲取具體材質數據
@@ -448,7 +529,7 @@ bool hit_world(Ray ray, out HitRecord hit) {
     const vec2 uv0 = texCoords[index.x];
     const vec2 uv1 = texCoords[index.y];
     const vec2 uv2 = texCoords[index.z];
-    vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
+    const vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
 
     // 4. 計算並儲存顏色 (這樣 trace_ray 不用再算一次紋理)
     hit.color = getBaseColor(mat, hitUV);
@@ -487,9 +568,9 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
         // 無論是 Light Type 還是 PBR 物件有自發光，都加上去
         if (material.type == LIGHT || length(material.emissionFactor.rgb) > 0.0)
         {
-            float lightAttenuation = calculateAttenuation(hit.t);
+            const float lightAttenuation = calculateAttenuation(hit.t);
             // emissionFactor.a 可以當作強度 multiplier
-            vec3 emission = material.emissionFactor.rgb * material.emissionFactor.a;
+            const vec3 emission = material.emissionFactor.rgb * material.emissionFactor.a;
             
             // 只有當面朝向我們時才看到光 (單面光)
             if (dot(hit.geoNormal, ray.direction) < 0.0) {
@@ -503,17 +584,20 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
         // 2. 處理透射 (Transmission / Glass)
         if (material.transmissionFactor > 0.0)
         {
-            float ior = material.ior;
-            float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
+            const float ior = material.ior;
+            const float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
             
-            vec3 bias = hit.geoNormal * 1e-4; // 偏移量
-            vec3 refracted = refract(ray.direction, hit.shadingNormal, eta);
+            const vec3 bias = hit.geoNormal * 1e-4; // 偏移量
+            const vec3 refracted = refract(ray.direction, hit.shadingNormal, eta);
             
             // 簡單處理：如果發生全反射 (Total Internal Reflection)，refract 返回 0
-            if (length(refracted) == 0.0) {
+            if (length(refracted) == 0.0)
+            {
                 ray.direction = reflect(ray.direction, hit.shadingNormal);
                 ray.origin = hit.point + bias;
-            } else {
+            }
+            else 
+            {
                 // 這裡可以使用 Fresnel 混合反射和折射，這裡簡化為根據 transmission 機率決定
                 // 或者簡單地直接折射
                 ray.direction = refracted;
@@ -525,29 +609,30 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
         // 3. 處理不透明物體 (PBR: Diffuse + Specular)
         else
         {
-            vec2 seed = hit.point.xy + float(depth) + sampleIndex;
-            vec3 viewDir = -ray.direction;
+            const vec2 seed = hit.point.xy + float(depth) + sampleIndex;
+            const vec3 viewDir = -ray.direction;
             
             // 基礎 F0 反射率 (非金屬 0.04，金屬則是 baseColor)
-            vec3 F0 = vec3(0.04); 
-            F0 = mix(F0, hit.color, material.metallicFactor);
+            // 金屬度越高，漫反射越少
+            vec3 F0 = vec3(0.04);
+            const float metallic = material.metallicFactor;
+            F0 = mix(F0, hit.color, metallic);
 
             // 簡單的 GGX 採樣策略
             // 這裡我們用一個隨機數決定是走 Specular 還是 Diffuse
             // 實際 PBR 應該使用重要性採樣 (Importance Sampling)
-            
-            // 金屬度越高，漫反射越少
-            float metallic = material.metallicFactor;
-            float roughness = material.roughnessFactor;
+
+            const float roughness = material.roughnessFactor;
 
             // 決定反射機率 (Fresnel 近似)
-            float specularProb = mix(0.04, 1.0, metallic); 
+            const float specularProb = mix(0.04, 1.0, metallic); 
             
-            if (random(seed + 1.3) < specularProb) {
+            if (random(seed + 1.3) < specularProb)
+            {
                 // === Specular path ===
-                vec3 reflected = reflect(ray.direction, hit.shadingNormal);
+                const vec3 reflected = reflect(ray.direction, hit.shadingNormal);
                 // 根據 roughness 擾動反射方向
-                vec3 jitter = random_unit_vector(seed) * roughness;
+                const vec3 jitter = random_unit_vector(seed) * roughness;
                 ray.direction = normalize(reflected + jitter);
                 
                 // 確保不射入表面內部
@@ -556,7 +641,8 @@ vec3 trace_ray(Ray ray, float sampleIndex) {
                 // 簡單能量補償
                 rayColor *= mix(vec3(1.0), hit.color, metallic); 
             } 
-            else {
+            else 
+            {
                 // === Diffuse path ===
                 ray.direction = cosine_weighted_direction(hit.shadingNormal, seed, hit.geoNormal);
                 // 金屬幾乎不吸收漫反射顏色，非金屬則顯示 baseColor
@@ -581,20 +667,25 @@ void main()
     const float ran = random(u_time);
 
     for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
+        if (ERROR_COLOR != vec3(0.0)) break;
         const vec2 jitter = random_vec2(pixel + float(s) + ran) - 0.5;
         Ray ray;
         ray.origin = camera.position;
         ray.direction = getRayDir(pixel + jitter);
         color += trace_ray(ray, float(s));
     }
-    // 平均多重採樣結果
-    color /= float(SAMPLES_PER_PIXEL);
 
-    // 若相機靜止，讀取上一幀顏色並混合
-    if (!cameraUpdated) {
-        const vec3 prevColor = texture(prevFrameTexture, (pixel + 0.5) / u_resolution).rgb;
-        color = mix(prevColor, color, alpha);
+    if (ERROR_COLOR != vec3(0.0)) {
+        imageStore(screenTexture, pixel, vec4(1.0, 0.0, 1.0, 1.0));
+    } else {
+        // 平均多重採樣結果
+        color /= float(SAMPLES_PER_PIXEL);
+
+        // 若相機靜止，讀取上一幀顏色並混合
+        if (!cameraUpdated) {
+            const vec3 prevColor = texture(prevFrameTexture, (pixel + 0.5) / u_resolution).rgb;
+            color = mix(prevColor, color, alpha);
+        }
+        imageStore(screenTexture, pixel, vec4(color, 1.0));
     }
-
-    imageStore(screenTexture, pixel, vec4(color, 1.0));
 }
