@@ -1,6 +1,17 @@
-﻿#include "XEngine/graphics/cameraController.hpp"
+﻿#include "graphics/cameraController.hpp"
 
+#include "graphics/camera.hpp"
+#include "input/keyboard.h" 
+#include "input/mouse.h" 
 
+    struct KeyBindings {
+        int Forward = XENGINE_INPUT_KEY_UP;   
+        int Backward = XENGINE_INPUT_KEY_DOWN;
+        int Left = XENGINE_INPUT_KEY_LEFT;
+        int Right = XENGINE_INPUT_KEY_RIGHT;
+        int Up = XENGINE_INPUT_KEY_SPACE;
+        int Down = XENGINE_INPUT_KEY_LSHIFT;
+    } mKeys;
 
 CameraController::CameraController(Camera& camera)
     : mCamera(camera)
