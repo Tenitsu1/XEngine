@@ -15,12 +15,10 @@ enum CameraMovement {
     DOWN
 };
 
-// 這是原本你的 struct，我們將其保留作為傳遞給 Shader 的數據包
-// 我稍微整理了一下，確保只包含 Shader 可能需要的數據 (或是與你 setUniformCamera 兼容的格式)
 struct CameraData
 {
     glm::vec3 position;
-    glm::vec3 lookat;   // 在你的邏輯中，這其實是 Front (方向向量)
+    glm::vec3 lookat;   
     glm::vec3 up;
 
     glm::vec3 direction;
@@ -33,8 +31,7 @@ struct CameraData
     float yaw;
     float pitch;
 
-    // 這些選項保留在 struct 內如果你的 shader 不需要它們，可以考慮移出，
-    // 但為了兼容你現有的 setUniformCamera，我們先留著
+
     float MovementSpeed;
     float MouseSensitivity;
     float Zoom;
