@@ -618,9 +618,16 @@ namespace XEngine::graphics
 			mat.normalTexture = gltfMat.normalTexture.index;
 
 			// 4. Emissive (自發光)
+			auto emissiveStrength = gltfMat.extensions.find("KHR_materials_emissive_strength");
 			if (gltfMat.emissiveFactor.size() == 3) {
+				if (emissiveStrength != gltfMat.extensions.end() && emissiveStrength->second.IsObject()) {
+					const auto& val = emissiveStrength->second;
+					if (val.Has("emissiveStrength")) {
+						mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), (float)val.Get("emissiveStrength").GetNumberAsDouble());
+					}
+				}
 				// GLTF 的 emissiveFactor 是 vec3，我們填入 vec4 的 RGB，A 設為 1.0 或用於強度
-				mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), 1.0f);
+				
 			}
 
 			// 5. Extensions (Transmission & IOR)
