@@ -85,7 +85,7 @@ uniform bool cameraUpdated;
 uniform mat4 invViewProj;
 
 // --- const ---
-const int MAX_STACK_SIZE = 16; 
+const int MAX_STACK_SIZE = 32;
 const float EPSILON = 1e-20;
 const float PI = 3.14159265359;
 const int LIGHT = 1;
@@ -201,13 +201,14 @@ vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
 }
 
 // --- Triangle intersect ---
-vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
+vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2, bool backfaceCulling) {
     const vec3 edge1 = p1 - p0;
     const vec3 edge2 = p2 - p0;
     const vec3 pvec = cross(ray.direction, edge2);
 
     const float det = dot(edge1, pvec);
-    if (abs(det) < 1e-5) return vec3(-1.0);
+    
+    if ((backfaceCulling ? det : abs(det)) < EPSILON) return vec3(-1.0);
 
     const float invDet = 1.0 / det;
     const vec3 tvec = ray.origin - p0;
@@ -241,10 +242,12 @@ bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
 }
 
 bool hit_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
-    const bool doubleSided = false;
     const ivec4 index = indices[i];
-    const vec3 temp = intersectTriangle(ray, vertices[index.x].xyz, vertices[index.y].xyz, vertices[index.z].xyz);
-    if (temp.x < tMax && (doubleSided || temp.x > EPSILON)) {
+    const bool doubleSided = bool(index.w);
+    const vec3 temp = intersectTriangle(ray, vertices[index.x].xyz, vertices[index.y].xyz, vertices[index.z].xyz, !doubleSided);
+    if (temp == vec3(-1.0)) return false;
+
+    if (temp.x < tMax) {
         tMax = temp.x;
         hitResult = temp;
         return true;
@@ -288,8 +291,11 @@ int hit_triangle(Ray ray, out vec3 hitResult) {
     int hitIdx = -1;
     for (int i = 0; i < indices.length(); i++) {
         const ivec4 idx = indices[i];
-        const vec3 temp = intersectTriangle(ray, vertices[idx.x].xyz, vertices[idx.y].xyz, vertices[idx.z].xyz);
-        if (temp.x < tMax && temp.x > EPSILON) {
+        const bool doubleSided = bool(idx.w);
+        const vec3 temp = intersectTriangle(ray, vertices[idx.x].xyz, vertices[idx.y].xyz, vertices[idx.z].xyz, !doubleSided);
+        if (temp == vec3(-1.0)) continue;
+
+        if (temp.x < tMax) {
             tMax = temp.x;
             hitIdx = i;
             hitResult = temp;
@@ -375,7 +381,7 @@ vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
             throughput *= 1.0 / p;
         }
 
-        vec3 bias = hit.geoNormal * 1e-4;
+        vec3 bias = hit.geoNormal * 1e-2;
         ray.origin = hit.point + bias;
 
         // Material (PBR / Glass)

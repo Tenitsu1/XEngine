@@ -97,7 +97,7 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_Close.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_girl.gltf");
 		auto& Mesh = mModel->getMesh();
 
 		std::vector<Material> materials = mModel->getMaterials();
