@@ -161,14 +161,14 @@ void main() {
     // color = gaussianBlur5x5(texelSize);
 
     // Laplacian 邊緣檢測 + 雙邊濾波
-	// float threshold = 0.1;
-    // float edgeStrength = laplacianEdge(texelSize);
-	// if (edgeStrength > threshold) {
-	// 	// 對邊緣做雙邊濾波
-	// 	color = bilateralFilter(texelSize, 2.0, 0.1);
-	// } else {
-	// 	color = texture(screenTexture, TexCoords).rgb;
-	// }
+	 float threshold = 0.1;
+     float edgeStrength = laplacianEdge(texelSize);
+	 if (edgeStrength > threshold) {
+	 	// 對邊緣做雙邊濾波
+	 	color = bilateralFilter(texelSize, 2.0, 0.1);
+	 } else {
+	 	color = texture(screenTexture, TexCoords).rgb;
+	 }
 
     // 梯度模糊
     // PixelColor pc = getPixelColors(texelSize);

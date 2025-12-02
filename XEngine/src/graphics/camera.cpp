@@ -14,8 +14,6 @@ Camera::Camera(glm::vec3 position, glm::vec3 up, float yaw, float pitch)
 
 glm::mat4 Camera::GetViewMatrix()
 {
-    // lookAt 函數參數: (位置, 目標點, 上方向量)
-    // 目標點 = 位置 + 前方方向
     return glm::lookAt(Position, Position + Front, Up);
 }
 

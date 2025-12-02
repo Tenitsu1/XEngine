@@ -7,6 +7,8 @@
 #include "structs.hpp"
 #include "external/glm/glm.hpp"
 
+#include "XEngine/shaders/shader.h"
+
 //#include "stb_image.h"
 typedef unsigned int GLuint;
 
@@ -51,10 +53,13 @@ namespace XEngine::graphics
 		inline Mesh& getMesh() { return mMesh; }
 		inline const std::vector<GLuint>& getTextures() const { return mTextures; }
 		inline const std::vector<Material>& getMaterials() const { return mMaterials; }
+		inline const std::vector<PackedTriangle>& getPackedTriangles() const { return mPackedTriangles; }
 
 
 		// Debug
 		void printMaterialTextureMapping(const tinygltf::Model& model);
+		void drawWithShader(std::shared_ptr<Shader> shader, tinygltf::Model& model);
+
 
 	private:
 		Mesh mMesh;
@@ -72,8 +77,20 @@ namespace XEngine::graphics
 
 		void loadTextures(tinygltf::Model& model);
 
+		void drawNodeRecursive(std::shared_ptr<Shader> shader, tinygltf::Model& model, int nodeIdx, const glm::mat4& parentTransform);
+		void drawMeshWithMaterial(std::shared_ptr<Shader> shader, tinygltf::Model& model, tinygltf::Mesh& mesh);
+
+		void processMesh(tinygltf::Model& model, tinygltf::Mesh& mesh, int meshIndex, std::map<int, GLuint>& bufferViewVBOs);
+		void setupRenderPrimitives(tinygltf::Model& model, std::map<int, GLuint>& bufferViewVBOs);
+
+		void buildPackedTriangles();
+
 	private:
 		std::pair<GLuint, std::map<int, GLuint>> vaoAndEbos;
 		std::vector<GLuint> mTextures;
+
+		std::map<int, std::vector<RenderPrimitive>> mRenderCache;
+		std::vector<PackedTriangle> mPackedTriangles;
+
 	};
 }

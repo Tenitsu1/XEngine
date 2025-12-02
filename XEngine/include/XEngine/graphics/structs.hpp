@@ -48,3 +48,25 @@ struct Material
 	}
 
 };
+
+struct RenderPrimitive {
+	//uint32_t vao;           // 每個 Primitive 都有自己的 VAO
+	//uint32_t count;         // 索引數量
+	//uint32_t type;          // 索引類型 (unsigned short/int)
+	//size_t byteOffset;    // EBO 偏移
+	//int materialIndex;    // 材質索引
+	uint32_t vao;           // 已經設定好屬性的 VAO
+	uint32_t materialIndex; // 材質索引
+
+	// 繪製參數 (直接存下來，繪製時不用再查 accessor)
+	uint32_t mode;          // GL_TRIANGLES
+	uint32_t  count;        // 索引數量
+	uint32_t type;          // GL_UNSIGNED_SHORT / INT
+	uint32_t byteOffset;    // EBO 偏移量
+};
+
+struct PackedTriangle {
+	glm::vec4 v0;   // w = materialIndex (cast to float)
+	glm::vec4 e1;   // w = padding
+	glm::vec4 e2;   // w = padding
+};

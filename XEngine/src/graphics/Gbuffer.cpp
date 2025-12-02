@@ -39,45 +39,48 @@ namespace XEngine::graphics
         glGenTextures(GBUFFER_NUM_TEXTURES, mTextures);
         glGenTextures(1, &mDepthTexture);
 
-        for (unsigned int i = 0; i < GBUFFER_NUM_TEXTURES; i++) {
-            glBindTexture(GL_TEXTURE_2D, mTextures[i]);
+        // 1. Position: 使用 32F 以確保光追時的世界座標重建精確
+        glBindTexture(GL_TEXTURE_2D, mTextures[GBUFFER_POSITION]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTextures[GBUFFER_POSITION], 0);
 
+        // 2. Normal: 16F 足夠
+        glBindTexture(GL_TEXTURE_2D, mTextures[GBUFFER_NORMAL]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, mTextures[GBUFFER_NORMAL], 0);
 
-            GLenum internalFormat = GL_RGBA16F;
-            GLenum format = GL_RGBA;
-            GLenum type = GL_FLOAT;
+        // 3. Albedo + Metallic: RGB=Albedo, A=Metallic
+        glBindTexture(GL_TEXTURE_2D, mTextures[GBUFFER_ALBEDO]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, mTextures[GBUFFER_ALBEDO], 0);
 
-            glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, NULL);
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, mTextures[i], 0);
-        }
+        // 4. Emission + Roughness: RGB=Emission, A=Roughness
+        glBindTexture(GL_TEXTURE_2D, mTextures[GBUFFER_EMISSION]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, mTextures[GBUFFER_EMISSION], 0);
 
         // Depth Attachment
         glBindTexture(GL_TEXTURE_2D, mDepthTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, mDepthTexture, 0);
 
-        unsigned int attachments[GBUFFER_NUM_TEXTURES] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
+        unsigned int attachments[4] = {
+            GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3
         };
-        glDrawBuffers(GBUFFER_NUM_TEXTURES, attachments);
+        glDrawBuffers(4, attachments);
 
-        GLenum Status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (Status != GL_FRAMEBUFFER_COMPLETE) {
-            XENGINE_ERROR("GBuffer FBO Error, Status: 0x {}",Status);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            XENGINE_ERROR("GBuffer Framebuffer not complete!");
             return false;
         }
 
@@ -88,6 +91,10 @@ namespace XEngine::graphics
     void GBuffer::bindForWriting() {
         glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
         glViewport(0, 0, mWidth, mHeight);
+        glEnable(GL_DEPTH_TEST);
+        // 背景色設為 0 (alpha=0)，Compute Shader 讀到 0 會視為背景/天空
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
     void GBuffer::bindForReading(unsigned int startSlot) {
@@ -112,4 +119,10 @@ namespace XEngine::graphics
             initialize(width, height);
         }
     }
+
+    void GBuffer::unbind()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
 }

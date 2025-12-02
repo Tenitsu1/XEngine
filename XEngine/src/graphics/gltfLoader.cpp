@@ -1,7 +1,6 @@
 ﻿#include "graphics/gltfLoader.h"
 
 #define TINYGLTF_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STBI_MSC_SECURE_CRT
 #define TINYGLTF_NOEXCEPTION
@@ -77,6 +76,8 @@ namespace XEngine::graphics
 		extractMaterials(model);
 		vaoAndEbos = bindModel(model);
 		extractMesh(model);
+		setupRenderPrimitives(model, vaoAndEbos.second);
+		buildPackedTriangles();
 
 	}
 
@@ -97,57 +98,37 @@ namespace XEngine::graphics
 		}
 	}
 
+
 	void GLTFStaticMesh::bindMesh(std::map<int, GLuint>& vbos,
 		tinygltf::Model& model, tinygltf::Mesh& mesh) {
-		// 建立一個靜態的 map 來映射 glTF 屬性名稱到 GLSL location
-		static const std::map<std::string, GLuint> attributeLocations = {
-			{"POSITION", 0},
-			{"NORMAL", 1},
-			{"TEXCOORD_0", 2}
-		};
 
+		// 1. 遍歷 bufferViews，產生 VBO 並上傳數據 (這部分保留)
 		for (int i = 0; i < model.bufferViews.size(); ++i) {
 			const tinygltf::BufferView& bufferView = model.bufferViews[i];
 			if (bufferView.target == 0) {
-				XENGINE_WARN("WARN: bufferView.target is zero, skipping.");
+				// 有些 bufferView 是存 image 的，target 為 0，跳過是正確的，
+				// 但為了安全，建議只針對 ARRAY_BUFFER 和 ELEMENT_ARRAY_BUFFER 處理
 				continue;
 			}
-			const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
-			GLuint vbo;
-			glGenBuffers(1, &vbo);
-			vbos[i] = vbo;
-			glBindBuffer(bufferView.target, vbo);
-			glBufferData(bufferView.target, bufferView.byteLength,
-				&buffer.data.at(0) + bufferView.byteOffset, GL_STATIC_DRAW);
-		}
 
-		// 遍歷 Primitives
-		for (size_t i = 0; i < mesh.primitives.size(); ++i) {
-			tinygltf::Primitive primitive = mesh.primitives[i];
+			// 如果這個 bufferView 還沒生成過 VBO (避免重複生成)
+			if (vbos.find(i) == vbos.end()) {
+				const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
+				GLuint vbo;
+				glGenBuffers(1, &vbo);
+				vbos[i] = vbo;
 
-			// 遍歷這個 Primitive 的所有屬性
-			for (const auto& attrib : primitive.attributes) {
-				const tinygltf::Accessor& accessor = model.accessors[attrib.second];
-				int byteStride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
-				glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
+				glBindBuffer(bufferView.target, vbo);
+				glBufferData(bufferView.target, bufferView.byteLength,
+					&buffer.data.at(0) + bufferView.byteOffset, GL_STATIC_DRAW);
 
-				int size = (accessor.type == TINYGLTF_TYPE_SCALAR) ? 1 : accessor.type;
-
-				// 使用 map 來查找屬性位置
-				auto it = attributeLocations.find(attrib.first);
-				if (it != attributeLocations.end()) {
-					GLuint vaa = it->second;
-					glEnableVertexAttribArray(vaa);
-					glVertexAttribPointer(vaa, size, accessor.componentType,
-						accessor.normalized ? GL_TRUE : GL_FALSE,
-						byteStride, BUFFER_OFFSET(accessor.byteOffset));
-				}
-				else {
-					XENGINE_WARN("vaa missing or unsupported attribute: {}", attrib.first);
-				}
+				// 解除綁定，保持狀態乾淨
+				glBindBuffer(bufferView.target, 0);
 			}
 		}
 	}
+
+
 
 	// bind models
 	void GLTFStaticMesh::bindModelNodes(std::map<int, GLuint>& vbos, tinygltf::Model& model,
@@ -438,6 +419,7 @@ namespace XEngine::graphics
 		glm::mat4 worldTransform = parentTransform * GetLocalMatrix(node);
 		glm::mat3 normalTransform = glm::transpose(glm::inverse(glm::mat3(worldTransform)));
 
+
 		// 如果節點包含一個 mesh，則處理它
 		if (node.mesh > -1) {
 			const tinygltf::Mesh& mesh = model.meshes[node.mesh];
@@ -537,6 +519,8 @@ namespace XEngine::graphics
 				const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
 				const uint8_t* indexBufferData = &model.buffers[indexBufferView.buffer].data[indexBufferView.byteOffset + indexAccessor.byteOffset];
 				int materialIndex = primitive.material;
+				const tinygltf::Material& gltfMat = model.materials[materialIndex];
+
 
 				// 遍歷這個 primitive 的所有索引
 				for (size_t j = 0; j < indexAccessor.count; j += 3) {
@@ -564,7 +548,7 @@ namespace XEngine::graphics
 						i0 + vertex_offset,
 						i1 + vertex_offset,
 						i2 + vertex_offset,
-						-1 // w 分量未使用
+						(int)gltfMat.doubleSided
 					);
 					mMesh.indices.push_back(global_indices);
 
@@ -649,5 +633,317 @@ namespace XEngine::graphics
 		}
 
 		XENGINE_TRACE("Extracted {} materials (AoS format)", matCount);
+	}
+
+	void GLTFStaticMesh::drawWithShader(std::shared_ptr<XEngine::Shader> shader, tinygltf::Model& model) {
+		if (model.scenes.empty()) return;
+
+		const tinygltf::Scene& scene = model.scenes[model.defaultScene > -1 ? model.defaultScene : 0];
+
+		// 綁定全域 VAO
+		glBindVertexArray(vaoAndEbos.first);
+
+		// 遞迴繪製場景樹
+		for (size_t i = 0; i < scene.nodes.size(); ++i) {
+			drawNodeRecursive(shader, model, scene.nodes[i], glm::mat4(1.0f));
+		}
+
+		glBindVertexArray(0);
+	}
+
+	// =========================================================================
+	// 遞迴邏輯
+	// =========================================================================
+	void GLTFStaticMesh::drawNodeRecursive(std::shared_ptr<XEngine::Shader> shader, tinygltf::Model& model, int nodeIdx, const glm::mat4& parentTransform) {
+		const tinygltf::Node& node = model.nodes[nodeIdx];
+
+		// 計算世界矩陣
+		glm::mat4 localTransform = GetLocalMatrix(node);
+		glm::mat4 globalTransform = parentTransform * localTransform;
+
+		// 如果有 Mesh，繪製它
+		if (node.mesh >= 0) {
+			// 傳送 Model Matrix 到 Shader
+			shader->setUniformMat4("model", globalTransform);
+
+			// 處理法線矩陣 (防止不等比縮放導致法線錯誤)
+			// gbuffer.vert 通常需要這個，如果你的 shader 裡是自己算的，這邊傳也無妨
+			// glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(globalTransform)));
+			// shader->setUniformMat3("normalMatrix", normalMatrix);
+
+			drawMeshWithMaterial(shader, model, model.meshes[node.mesh]);
+		}
+
+		// 繼續處理子節點
+		for (int childIdx : node.children) {
+			drawNodeRecursive(shader, model, childIdx, globalTransform);
+		}
+	}
+
+	// =========================================================================
+	// 材質綁定與繪製
+	// =========================================================================
+	void GLTFStaticMesh::drawMeshWithMaterial(std::shared_ptr<XEngine::Shader> shader, tinygltf::Model& model, tinygltf::Mesh& mesh) {
+
+		// 我們需要知道這是第幾個 Mesh 才能去查 mRenderCache
+		// 由於 tinygltf::Mesh 結構本身不帶 ID，這裡需要從 model.meshes 指針推算 ID
+		// 或者修改 drawMeshWithMaterial 讓它傳入 meshIndex
+		// 這裡使用指針運算來獲取 index (假設 mesh 是來自 model.meshes 的引用)
+		int meshIndex = (int)(&mesh - &model.meshes[0]);
+
+		if (mRenderCache.find(meshIndex) == mRenderCache.end()) return;
+
+		const auto& primitives = mRenderCache[meshIndex];
+
+		for (const auto& renderPrim : primitives) {
+
+			// --------------------------------------------------
+			// 1. 設定材質 Uniforms (保持不變)
+			// --------------------------------------------------
+			glm::vec4 baseColor(1.0f);
+			glm::vec4 emission(0.0f);
+			float metallic = 1.0f;
+			float roughness = 1.0f;
+			float ior = 1.5f;
+			float transmission = 0.0f;
+
+			bool useBaseColorMap = false;
+			bool useMetallicRoughnessMap = false;
+			bool useNormalMap = false;
+			bool useEmissiveMap = false;
+
+			if (renderPrim.materialIndex >= 0) {
+				const tinygltf::Material& mat = model.materials[renderPrim.materialIndex];
+
+				// Base Color
+				if (mat.pbrMetallicRoughness.baseColorFactor.size() == 4) {
+					baseColor = glm::make_vec4(mat.pbrMetallicRoughness.baseColorFactor.data());
+				}
+				if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
+					glActiveTexture(GL_TEXTURE0);
+					glBindTexture(GL_TEXTURE_2D, mTextures[mat.pbrMetallicRoughness.baseColorTexture.index]);
+					useBaseColorMap = true;
+				}
+
+				// Metallic & Roughness
+				metallic = (float)mat.pbrMetallicRoughness.metallicFactor;
+				roughness = (float)mat.pbrMetallicRoughness.roughnessFactor;
+				if (mat.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
+					glActiveTexture(GL_TEXTURE1);
+					glBindTexture(GL_TEXTURE_2D, mTextures[mat.pbrMetallicRoughness.metallicRoughnessTexture.index]);
+					useMetallicRoughnessMap = true;
+				}
+
+				// Normal
+				if (mat.normalTexture.index >= 0) {
+					glActiveTexture(GL_TEXTURE2);
+					glBindTexture(GL_TEXTURE_2D, mTextures[mat.normalTexture.index]);
+					useNormalMap = true;
+				}
+
+				// Emissive
+				if (mat.emissiveFactor.size() == 3) {
+					emission = glm::vec4(glm::make_vec3(mat.emissiveFactor.data()), 1.0f);
+				}
+				if (mat.extensions.count("KHR_materials_emissive_strength")) {
+					const auto& ext = mat.extensions.at("KHR_materials_emissive_strength");
+					if (ext.Has("emissiveStrength")) {
+						float strength = (float)ext.Get("emissiveStrength").GetNumberAsDouble();
+						emission.r *= strength;
+						emission.g *= strength;
+						emission.b *= strength;
+					}
+				}
+				if (mat.emissiveTexture.index >= 0) {
+					glActiveTexture(GL_TEXTURE3);
+					glBindTexture(GL_TEXTURE_2D, mTextures[mat.emissiveTexture.index]);
+					useEmissiveMap = true;
+				}
+			}
+
+			// 上傳 Uniforms
+			shader->setUniformFloat4("material.baseColorFactor", baseColor);
+			shader->setUniformFloat4("material.emissionFactor", emission);
+			shader->setUniformFloat1("material.metallicFactor", metallic);
+			shader->setUniformFloat1("material.roughnessFactor", roughness);
+
+			shader->setUniformBool("material.useBaseColorMap", useBaseColorMap);
+			shader->setUniformBool("material.useMetallicRoughnessMap", useMetallicRoughnessMap);
+			shader->setUniformBool("material.useNormalMap", useNormalMap);
+			shader->setUniformBool("material.useEmissiveMap", useEmissiveMap);
+
+			// --------------------------------------------------
+			// 2. 極速繪製 (Fast Path)
+			// --------------------------------------------------
+			glBindVertexArray(renderPrim.vao);
+
+			glDrawElements(renderPrim.mode,
+				renderPrim.count,
+				renderPrim.type,
+				BUFFER_OFFSET(renderPrim.byteOffset));
+
+			// --------------------------------------------------
+		}
+
+		glBindVertexArray(0);
+	}
+
+	// 這是優化版本的 processMesh，請放在初始化階段呼叫
+	void GLTFStaticMesh::setupRenderPrimitives(tinygltf::Model& model, std::map<int, GLuint>& bufferViewVBOs) {
+
+		for (int i = 0; i < model.meshes.size(); ++i) {
+			const auto& mesh = model.meshes[i];
+			std::vector<RenderPrimitive> primitives;
+
+			for (const auto& primitive : mesh.primitives) {
+				RenderPrimitive renderPrim;
+				renderPrim.materialIndex = primitive.material;
+				renderPrim.mode = primitive.mode;
+
+				// 1. 生成並綁定 VAO (開始錄製狀態)
+				glGenVertexArrays(1, &renderPrim.vao);
+				glBindVertexArray(renderPrim.vao);
+
+				// 2. 設定 VBO 屬性 (這些設定會被記錄在 VAO 中)
+				for (const auto& attrib : primitive.attributes) {
+					const std::string& name = attrib.first;
+					int accessorIdx = attrib.second;
+					const auto& accessor = model.accessors[accessorIdx];
+					const auto& bufferView = model.bufferViews[accessor.bufferView];
+
+					// 綁定 VBO
+					glBindBuffer(GL_ARRAY_BUFFER, bufferViewVBOs[accessor.bufferView]);
+
+					// 設定 Location (根據你的 Shader Layout)
+					int location = -1;
+					if (name == "POSITION") location = 0;
+					else if (name == "NORMAL") location = 1;
+					else if (name == "TEXCOORD_0") location = 2;
+					// else if (name == "TANGENT") location = 3; 
+
+					if (location != -1) {
+						glEnableVertexAttribArray(location);
+						glVertexAttribPointer(location,
+							(accessor.type == TINYGLTF_TYPE_SCALAR) ? 1 : accessor.type,
+							accessor.componentType,
+							accessor.normalized ? GL_TRUE : GL_FALSE,
+							accessor.ByteStride(bufferView),
+							BUFFER_OFFSET(accessor.byteOffset));
+					}
+				}
+
+				// 3. 綁定 EBO (EBO 的綁定狀態也會被記錄在 VAO 中！)
+				if (primitive.indices >= 0) {
+					const auto& indexAccessor = model.accessors[primitive.indices];
+					const auto& indexBufferView = model.bufferViews[indexAccessor.bufferView];
+
+					glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bufferViewVBOs[indexAccessor.bufferView]);
+
+					renderPrim.count = (GLsizei)indexAccessor.count;
+					renderPrim.type = indexAccessor.componentType;
+					renderPrim.byteOffset = (uint32_t)indexAccessor.byteOffset;
+				}
+				else {
+					// 處理沒有 Index 的情況 (glDrawArrays)
+					// 這邊暫時略過，假設 glTF 都有 index
+				}
+
+				// 4. 結束錄製
+				glBindVertexArray(0);
+
+				// 重要：解綁 VBO/EBO (VAO 已經記住了，這裡解綁是為了不影響外部狀態)
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+				primitives.push_back(renderPrim);
+			}
+
+			mRenderCache[i] = primitives;
+		}
+	}
+
+
+	void GLTFStaticMesh::processMesh(tinygltf::Model& model, tinygltf::Mesh& mesh, int meshIndex, std::map<int, GLuint>& bufferViewVBOs) {
+
+		const auto& primitives = mRenderCache[meshIndex];
+
+		for (const auto& primitive : mesh.primitives) {
+			RenderPrimitive renderPrim;
+			renderPrim.materialIndex = primitive.material;
+
+			// 1. 為這個 Primitive 建立獨立的 VAO
+			glGenVertexArrays(1, &renderPrim.vao);
+			glBindVertexArray(renderPrim.vao);
+
+			// 2. 設定 VBO 屬性 (只執行這一次，狀態會被存進 renderPrim.vao)
+			for (const auto& attrib : primitive.attributes) {
+				const tinygltf::Accessor& accessor = model.accessors[attrib.second];
+				const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+
+				// 綁定對應的 VBO
+				glBindBuffer(GL_ARRAY_BUFFER, bufferViewVBOs[accessor.bufferView]);
+
+				// 設定 Pointer
+				int size = (accessor.type == TINYGLTF_TYPE_SCALAR) ? 1 : accessor.type;
+				GLuint location = -1;
+				if (attrib.first == "POSITION") location = 0;
+				else if (attrib.first == "NORMAL") location = 1;
+				else if (attrib.first == "TEXCOORD_0") location = 2;
+
+				if (location != -1) {
+					glEnableVertexAttribArray(location);
+					glVertexAttribPointer(location, size, accessor.componentType,
+						accessor.normalized ? GL_TRUE : GL_FALSE,
+						accessor.ByteStride(bufferView),
+						BUFFER_OFFSET(accessor.byteOffset));
+				}
+			}
+
+			// 3. 綁定 EBO (也被存進 VAO 狀態中)
+			const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
+			renderPrim.count = (uint32_t)indexAccessor.count;
+			renderPrim.type = indexAccessor.componentType;
+			renderPrim.byteOffset = (uint32_t)indexAccessor.byteOffset;
+
+			glBindVertexArray(renderPrim.vao);
+
+			glDrawElements(renderPrim.mode,
+				renderPrim.count,
+				renderPrim.type,
+				BUFFER_OFFSET(renderPrim.byteOffset));
+		}
+		glBindVertexArray(0);
+
+	}
+
+	void GLTFStaticMesh::buildPackedTriangles() {
+		XENGINE_TRACE("Building Packed Triangles...");
+
+		size_t triCount = mMesh.indices.size();
+		mPackedTriangles.clear();
+		mPackedTriangles.reserve(triCount);
+
+		for (size_t i = 0; i < triCount; ++i) {
+			glm::ivec4 idx = mMesh.indices[i];
+
+			// 讀取原始頂點
+			glm::vec3 p0 = glm::vec3(mMesh.vertices[idx.x]);
+			glm::vec3 p1 = glm::vec3(mMesh.vertices[idx.y]);
+			glm::vec3 p2 = glm::vec3(mMesh.vertices[idx.z]);
+
+			PackedTriangle tri;
+
+			// v0.w 存放材質索引 (轉換為 float 存儲)
+			float matIdx = (float)mMesh.materialIndices[i];
+			tri.v0 = glm::vec4(p0, matIdx);
+
+			// 預計算邊向量 e1, e2
+			tri.e1 = glm::vec4(p1 - p0, 0.0f);
+			tri.e2 = glm::vec4(p2 - p0, 0.0f);
+
+			mPackedTriangles.push_back(tri);
+		}
+
+		XENGINE_TRACE("Packed {} triangles.", mPackedTriangles.size());
 	}
 }

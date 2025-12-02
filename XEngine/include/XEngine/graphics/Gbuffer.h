@@ -25,6 +25,8 @@ namespace XEngine::graphics
 
         void bindForReading(unsigned int startSlot = 0);
 
+        void unbind();
+
         uint32_t getTexture(GBUFFER_TEXTURE_TYPE type);
 
         uint32_t getDepthTexture() { return mDepthTexture; }
