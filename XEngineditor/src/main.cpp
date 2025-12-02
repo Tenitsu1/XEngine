@@ -65,7 +65,7 @@ private:
 	GLuint mMatToTexMapSSBO = 0;
 	GLuint mPackedTriSSBO = 0;
 
-	GLuint mScreenTextures[2] = {0, 0};
+	GLuint mScreenTexture = 0;
 	int mCurrentFrame = 0;
 
 	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
@@ -125,7 +125,7 @@ public:
 		mShader->setEBO(quadIndices, sizeof(quadIndices));
 		mShader->bind(quadVertices, 4, 4);
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\test.glsl", width, height);
-		mScreenTextures[0] = mComputeShader->createTexture(width, height);
+		mScreenTexture = mComputeShader->createTexture(width, height);
 		//mScreenTextures[1] = mComputeShader->createTexture(width, height);
 
 		auto obvhNodes = OBVH::buildOBVH(Mesh);
@@ -194,10 +194,10 @@ public:
 			}
 		}
 
-		for (int i = 0; i < Mesh.indices.size(); i++)
-		{
-			if(Mesh.indices[i].w == 1)XENGINE_TRACE("The {} th : {}", i, Mesh.indices[i].w);
-		}
+		// for (int i = 0; i < Mesh.indices.size(); i++)
+		// {
+		// 	if(Mesh.indices[i].w == 1)XENGINE_TRACE("The {} th : {}", i, Mesh.indices[i].w);
+		// }
 
 
 		// --- 印出包圍盒日誌 ---
@@ -308,20 +308,18 @@ public:
 			mComputeShader->setUniformMat4("invViewProj", invViewProj);
 			mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
 			mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
-			mComputeShader->setUniformFloat3("backgroundColor", 0.5f, 0.5f, 0.5f);
 			mComputeShader->setUniformBool("useOBVH", useOBVH);
  
 
-			mComputeShader->DispatchCompute(mScreenTextures[0]);
+			mComputeShader->DispatchCompute(mScreenTexture);
 		}
 
 		// =============================================================
 		// Phase 3: Post-Processing Pass (Display to Screen/ImGui FBO)
 		// =============================================================
 		{
-			GLuint finalImage = mScreenTextures[0];
 			mShader->bind();
-			mShader->bindTexture(finalImage, 0, "screenTexture");
+			mShader->bindTexture(mScreenTexture, 0, "screenTexture");
 			mShader->draw(width, height);
 		}
 	}

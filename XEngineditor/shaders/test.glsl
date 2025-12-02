@@ -31,14 +31,15 @@ struct HitRecord {
     vec3 color;
     int materialID;
     float t;
-    vec3 shadingNormal; 
-    vec3 geoNormal;     
+    vec3 shadingNormal;
+    vec3 geoNormal;
+    bool frontFace;
 };
 
 struct Ray {
     vec3 origin;
     vec3 direction;
-    vec3 invDirection; 
+    vec3 invDirection;
 };
 
 struct Camera {
@@ -88,7 +89,6 @@ const int MAX_STACK_SIZE = 16;
 const float EPSILON = 1e-20;
 const float PI = 3.14159265359;
 const int LIGHT = 1;
-vec3 ERROR_COLOR = vec3(0.0);
 
 // --- random number ---
 uint hash(uint x) {
@@ -241,10 +241,10 @@ bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
 }
 
 bool hit_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
-    //const bool doubleSided = false;
+    const bool doubleSided = false;
     const ivec4 index = indices[i];
     const vec3 temp = intersectTriangle(ray, vertices[index.x].xyz, vertices[index.y].xyz, vertices[index.z].xyz);
-    if (temp.x < tMax && (index.w == 0 || temp.x > EPSILON)) {
+    if (temp.x < tMax && (doubleSided || temp.x > EPSILON)) {
         tMax = temp.x;
         hitResult = temp;
         return true;
@@ -275,15 +275,7 @@ int hit_bvh(Ray ray, out vec3 hitResult) {
             }
         } else {
             if (node.left >= 0) stack[stackPtr++] = node.left;
-            // if (stackPtr >= MAX_STACK_SIZE) {
-            //     ERROR_COLOR = vec3(1.0, 0.0, 1.0);
-            //     return -1;
-            // }
             if (node.right >= 0) stack[stackPtr++] = node.right;
-            // if (stackPtr >= MAX_STACK_SIZE) {
-            //     ERROR_COLOR = vec3(1.0, 0.0, 1.0);
-            //     return -1;
-            // }
         }
     }
     return hitIdx;
@@ -317,7 +309,8 @@ bool hit_world(Ray ray, out HitRecord hit) {
     hit.point = ray.origin + hit.t * ray.direction;
     
     const vec3 geoNormal = geoNormals[hitIdx].xyz;
-    hit.geoNormal = (dot(ray.direction, geoNormal) < 0.0) ? geoNormal : -geoNormal;
+    hit.frontFace = dot(ray.direction, geoNormal) < 0.0;
+    hit.geoNormal = hit.frontFace ? geoNormal : -geoNormal;
 
     const vec3 n0 = vertexNormals[index.x].xyz;
     const vec3 n1 = vertexNormals[index.y].xyz;
@@ -370,45 +363,42 @@ vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
         // Emission
         vec3 emission = material.emissionFactor.rgb * material.emissionFactor.a;
         if (length(emission) > 0.0) {
-            if (dot(hit.geoNormal, ray.direction) < 0.0) {
-                finalColor += throughput * emission; 
-            }
+            finalColor += int(hit.frontFace) * throughput * emission;
+
             if (material.type == LIGHT) break;
         }
 
         // If depth > 1 then attenuate throughput
         if (depth >= 2) {
             float p = max(throughput.r, max(throughput.g, throughput.b));
-            if (RandomValue(state) > p) break; 
-            throughput *= 1.0 / p;             
+            if (RandomValue(state) > p) break;
+            throughput *= 1.0 / p;
         }
+
+        vec3 bias = hit.geoNormal * 1e-4;
+        ray.origin = hit.point + bias;
 
         // Material (PBR / Glass)
         if (material.transmissionFactor > 0.0) {
             float ior = material.ior;
-            float eta = dot(ray.direction, hit.geoNormal) < 0.0 ? (1.0 / ior) : ior;
-            vec3 bias = hit.geoNormal * 1e-4;
-            vec3 refracted = refract(ray.direction, -N, eta);
-            
-            if (length(refracted) == 0.0) { 
-                ray.direction = reflect(ray.direction, N);
-                ray.origin = hit.point + bias;
-            } else {
-                float R0 = (1.0 - ior) / (1.0 + ior); R0 = R0 * R0;
+            float eta = hit.frontFace ? (1.0 / ior) : ior;
+            vec3 refracted = refract(ray.direction, N, eta);
+
+            ray.direction = reflect(ray.direction, N);
+
+            if (length(refracted) != 0.0) {
+                float R0 = (1.0 - ior) / (1.0 + ior);
+                float R1 = R0 * R0;
                 float cosTheta = min(dot(V, N), 1.0);
-                float fresnel = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
-                
-                if (RandomValue(state) < fresnel) {
-                    ray.direction = reflect(ray.direction, N);
-                    ray.origin = hit.point + bias;
-                } else {
+                float fresnel = R1 + (1.0 - R1) * pow(1.0 - cosTheta, 5);
+
+                if (RandomValue(state) >= fresnel) {
                     ray.direction = refracted;
                     ray.origin = hit.point - bias;
                 }
             }
             throughput *= hit.color;
-        }
-        else { // PBR
+        } else { // PBR
             float roughness = material.roughnessFactor;
             float metallic = material.metallicFactor;
             vec3 F0 = mix(vec3(0.04), hit.color, metallic);
@@ -423,18 +413,16 @@ vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
                 vec3 H = ImportanceSampleGGX(state, N, roughness);
                 vec3 L = reflect(-V, H);
                 ray.direction = L;
-                ray.origin = hit.point + hit.geoNormal * 1e-4;
 
-                if (dot(N, L) > 0.0) {
-                    vec3 specColor = mix(vec3(1.0), hit.color, metallic);
-                    throughput *= specColor;
-                    throughput /= specularProb;
-                } else break;
-            } 
-            else {
+                if (dot(N, L) <= 0.0) break;
+
+                vec3 specColor = mix(vec3(1.0), hit.color, metallic);
+                throughput *= specColor;
+                throughput /= specularProb;
+
+            } else {
                 if (metallic >= 1.0) break; 
                 ray.direction = cosine_weighted_direction(N, state, hit.geoNormal);
-                ray.origin = hit.point + hit.geoNormal * 1e-4;
                 throughput *= hit.color;
                 throughput *= max(dot(hit.shadingNormal, ray.direction), 0.0);
                 throughput /= (1.0 - specularProb);
@@ -455,7 +443,7 @@ void main()
     vec3 oldColor = previousData.rgb;
     float frameCount = previousData.a;
 
-    frameCount = cameraUpdated ? 0.0 : frameCount + 1.0;
+    frameCount = cameraUpdated ? 1.0 : frameCount + 1.0;
 
     uint state = getCurrentState(pixel, frameCount);
 
