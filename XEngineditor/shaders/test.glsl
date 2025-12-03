@@ -88,6 +88,7 @@ uniform mat4 invViewProj;
 const int MAX_STACK_SIZE = 32;
 const float EPSILON = 1e-20;
 const float PI = 3.14159265359;
+const float INF = 1.0 / 0.0;
 const int LIGHT = 1;
 
 // --- random number ---
@@ -201,14 +202,20 @@ vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
 }
 
 // --- Triangle intersect ---
-vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2, bool backfaceCulling) {
+vec3 RayTriangle(Ray ray, ivec4 index) {
+    const vec3 p0 = vertices[index.x].xyz;
+    const vec3 p1 = vertices[index.y].xyz;
+    const vec3 p2 = vertices[index.z].xyz;
+    const bool doubleSided = bool(index.w);
+
     const vec3 edge1 = p1 - p0;
     const vec3 edge2 = p2 - p0;
     const vec3 pvec = cross(ray.direction, edge2);
 
     const float det = dot(edge1, pvec);
-    
-    if ((backfaceCulling ? det : abs(det)) < EPSILON) return vec3(-1.0);
+    const float DET = doubleSided ? abs(det) : det;
+
+    if (DET < EPSILON) return vec3(-1.0);
 
     const float invDet = 1.0 / det;
     const vec3 tvec = ray.origin - p0;
@@ -231,68 +238,66 @@ vec3 intersectTriangle(Ray ray, vec3 p0, vec3 p1, vec3 p2, bool backfaceCulling)
 
 // --- AABB & BVH ---
 
-bool aabb_hit(Ray ray, vec3 minB, vec3 maxB, float tMax) {
+float RayBoundingBox_t(Ray ray, vec3 minB, vec3 maxB) {
     const vec3 t0 = (minB - ray.origin) * ray.invDirection;
     const vec3 t1 = (maxB - ray.origin) * ray.invDirection;
     const vec3 tmin = min(t0, t1);
     const vec3 tmax = max(t0, t1);
     const float entry = max(max(tmin.x, tmin.y), tmin.z);
     const float exit  = min(min(tmax.x, tmax.y), tmax.z);
-    return exit >= max(entry, 0.0) && entry < tMax;
+    const bool hit = exit >= entry && exit > 0.0;
+    return hit ? entry : INF;
 }
 
-bool hit_leaf(Ray ray, int i, inout float tMax, out vec3 hitResult) {
-    const ivec4 index = indices[i];
-    const bool doubleSided = bool(index.w);
-    const vec3 temp = intersectTriangle(ray, vertices[index.x].xyz, vertices[index.y].xyz, vertices[index.z].xyz, !doubleSided);
-    if (temp == vec3(-1.0)) return false;
-
-    if (temp.x < tMax) {
-        tMax = temp.x;
-        hitResult = temp;
-        return true;
-    }
-    return false;
-}
-
-int hit_bvh(Ray ray, out vec3 hitResult) {
+vec4 RayBVH(Ray ray) {
     float tMax = 1e9;
     int hitIdx = -1;
-    int stack[MAX_STACK_SIZE];
+    vec3 hitResult = vec3(0.0);
+
+    int idxStack[MAX_STACK_SIZE];
     int stackPtr = 0;
-    stack[stackPtr++] = 0; 
+    idxStack[stackPtr++] = 0; 
 
     while (stackPtr > 0) {
-        const int nodeIdx = stack[--stackPtr];
-        BVHNode node = bvhNodes[nodeIdx];
-
-        if (!aabb_hit(ray, node.aabbMin.xyz, node.aabbMax.xyz, tMax)) continue;
+        const int idx = idxStack[--stackPtr];
+        BVHNode node = bvhNodes[idx];
 
         if (node.count > 0) { // Leaf
             for (int i = node.start; i < node.start + node.count; i++) {   
-                vec3 temp;
-                if (hit_leaf(ray, i, tMax, temp)) {
+                const vec3 temp = RayTriangle(ray, indices[i]);
+                if (temp == vec3(-1.0)) continue;
+
+                if (temp.x < tMax) {
+                    tMax = temp.x;
                     hitIdx = i;
                     hitResult = temp;
                 }
             }
         } else {
-            if (node.left >= 0) stack[stackPtr++] = node.left;
-            if (node.right >= 0) stack[stackPtr++] = node.right;
+            const BVHNode nodeLeft = bvhNodes[node.left];
+            const BVHNode nodeRight = bvhNodes[node.right];
+            const float tLeft = RayBoundingBox_t(ray, nodeLeft.aabbMin.xyz, nodeLeft.aabbMax.xyz);
+            const float tRight = RayBoundingBox_t(ray, nodeRight.aabbMin.xyz, nodeRight.aabbMax.xyz);
+
+            if (tLeft > tRight) {
+                if (tLeft < tMax) idxStack[stackPtr++] = node.left;
+                if (tRight < tMax) idxStack[stackPtr++] = node.right;
+            } else {
+                if (tRight < tMax) idxStack[stackPtr++] = node.right;
+                if (tLeft < tMax) idxStack[stackPtr++] = node.left;
+            }
         }
     }
-    return hitIdx;
+    return vec4(hitResult, float(hitIdx));
 }
 
 // --- hit function ---
-
-int hit_triangle(Ray ray, out vec3 hitResult) {
+ vec4 RayNoBVH(Ray ray) {
     float tMax = 1e9;
     int hitIdx = -1;
+    vec3 hitResult = vec3(0.0);
     for (int i = 0; i < indices.length(); i++) {
-        const ivec4 idx = indices[i];
-        const bool doubleSided = bool(idx.w);
-        const vec3 temp = intersectTriangle(ray, vertices[idx.x].xyz, vertices[idx.y].xyz, vertices[idx.z].xyz, !doubleSided);
+        const vec3 temp = RayTriangle(ray, indices[i]);
         if (temp == vec3(-1.0)) continue;
 
         if (temp.x < tMax) {
@@ -301,27 +306,30 @@ int hit_triangle(Ray ray, out vec3 hitResult) {
             hitResult = temp;
         }
     }
-    return hitIdx;
+    return vec4(hitResult, float(hitIdx));
 }
 
 bool hit_world(Ray ray, out HitRecord hit) {
-    vec3 hitResult;
-    const int hitIdx = useOBVH ? hit_bvh(ray, hitResult) : hit_triangle(ray, hitResult);
+    vec4 hitData = useOBVH ? RayBVH(ray) : RayNoBVH(ray);
+    const int hitIdx = int(hitData.w);
     if (hitIdx == -1) return false;
 
     const ivec4 index = indices[hitIdx];
     
-    hit.t = hitResult.x;
+    hit.t = hitData.x;
     hit.point = ray.origin + hit.t * ray.direction;
     
     const vec3 geoNormal = geoNormals[hitIdx].xyz;
     hit.frontFace = dot(ray.direction, geoNormal) < 0.0;
-    hit.geoNormal = hit.frontFace ? geoNormal : -geoNormal;
+    hit.geoNormal = geoNormal;
+
+    const float u = hitData.y;
+    const float v = hitData.z;
 
     const vec3 n0 = vertexNormals[index.x].xyz;
     const vec3 n1 = vertexNormals[index.y].xyz;
     const vec3 n2 = vertexNormals[index.z].xyz;
-    const vec3 normal = barycentric(n0, n1, n2, hitResult.y, hitResult.z);
+    const vec3 normal = barycentric(n0, n1, n2, u, v);
     
     hit.shadingNormal = (dot(hit.geoNormal, normal) > 0.0) ? normal : -normal;
     
@@ -331,7 +339,7 @@ bool hit_world(Ray ray, out HitRecord hit) {
     const vec2 uv0 = texCoords[index.x];
     const vec2 uv1 = texCoords[index.y];
     const vec2 uv2 = texCoords[index.z];
-    const vec2 hitUV = uv0 * (1.0 - hitResult.y - hitResult.z) + uv1 * hitResult.y + uv2 * hitResult.z;
+    const vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
     
     hit.color = getBaseColor(mat, hitUV);
     return true;
@@ -381,7 +389,7 @@ vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
             throughput *= 1.0 / p;
         }
 
-        vec3 bias = hit.geoNormal * 1e-2;
+        vec3 bias = hit.frontFace ? (hit.geoNormal * 1e-2) : (-hit.geoNormal * 1e-2);
         ray.origin = hit.point + bias;
 
         // Material (PBR / Glass)
@@ -467,7 +475,7 @@ void main()
 
     float weight = 1.0 / frameCount;
     vec3 finalColor = mix(oldColor, currentFrameColor, weight);
-    
+
     if (any(isnan(finalColor)) || any(isinf(finalColor))) finalColor = oldColor;
 
     imageStore(screenTexture, pixel, vec4(finalColor, frameCount));

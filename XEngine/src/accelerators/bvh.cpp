@@ -1,12 +1,15 @@
-#include "accelerators/obvh.h"
+#include "accelerators/bvh.h"
 #include "bounds/bound3.h"
-#include <functional>
-#include <algorithm>
+
 #include "graphics/structs.hpp"
 #include "XEngine/log.h"
 
+#include <functional>
+#include <algorithm>
+#include <numeric>
 
-namespace XEngine::OBVH {
+
+namespace XEngine::BVH {
     std::vector<BVHNode> buildBVH(Mesh& mesh) {
         std::vector<BVHNode> nodes;
 
@@ -205,6 +208,81 @@ namespace XEngine::OBVH {
 
         buildNode(0, (int)mesh.indices.size(), MAX_DEPTH);
         return nodes;
+    }
+
+    LeafNode getLeafNode(const std::vector<BVHNode>& nodes) {
+        LeafNode leafNode;
+        leafNode.count = 0;
+
+        std::function<void(int, int)> traverse = [&](int index, int depth) {
+            const BVHNode& node = nodes[index];
+            if (node.count > 0) {
+                // 葉節點
+                leafNode.count++;
+                leafNode.depths.push_back(depth);
+                leafNode.triangleCounts.push_back(node.count);
+                return;
+            }
+            if (node.left != -1) traverse(node.left, depth + 1);
+            if (node.right != -1) traverse(node.right, depth + 1);
+        };
+
+        traverse(0, 0);
+
+        leafNode.depth = getStatistics(leafNode.depths);
+        leafNode.triangleCount = getStatistics(leafNode.triangleCounts);
+        return leafNode;
+    }
+
+    Statistics getStatistics(const std::vector<int>& nodes) {
+        Statistics stats;
+        if (nodes.empty()) {
+            stats.maxValue = 0;
+            stats.minValue = 0;
+            stats.modeValue = 0;
+            stats.medianValue = 0;
+            stats.averageValue = 0.0;
+            return stats;
+        }
+
+        std::vector<int> sortedNodes = nodes;
+        std::sort(sortedNodes.begin(), sortedNodes.end());
+
+        stats.maxValue = sortedNodes.back();
+        stats.minValue = sortedNodes.front();
+
+        // 計算眾數
+        int mode = sortedNodes[0];
+        int maxCount = 1, currentCount = 1;
+        for (size_t i = 1; i < sortedNodes.size(); i++) {
+            if (sortedNodes[i] == sortedNodes[i - 1]) {
+                currentCount++;
+                continue;
+            }
+
+            if (currentCount > maxCount) {
+                maxCount = currentCount;
+                mode = sortedNodes[i - 1];
+            }
+
+            currentCount = 1;
+        }
+        if (currentCount > maxCount) {
+            mode = sortedNodes.back();
+        }
+        stats.modeValue = mode;
+
+        // 計算中位數
+        size_t midIndex = sortedNodes.size() / 2;
+        if (sortedNodes.size() % 2 == 0) {
+            stats.medianValue = (sortedNodes[midIndex - 1] + sortedNodes[midIndex]) * 0.5f;
+        } else {
+            stats.medianValue = static_cast<float>(sortedNodes[midIndex]);
+        }
+
+        // 計算平均值
+        stats.averageValue = static_cast<float>(std::accumulate(sortedNodes.begin(), sortedNodes.end(), 0.0f)) / sortedNodes.size();
+        return stats;
     }
 
     Mesh mergeMeshes(const std::vector<Mesh>& meshes) {

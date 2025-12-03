@@ -172,9 +172,12 @@ namespace XEngine::core
 		return glm::ivec2(w, h);
 	}
 
-	uint64_t Window::getDeltaTime()
+	float Window::getDeltaTime(uint64_t& startTime)
 	{
-		return SDL_GetPerformanceCounter();
+		uint64_t endTime = SDL_GetPerformanceCounter();
+		float deltaTime = (endTime - startTime) / (float)SDL_GetPerformanceFrequency();
+		startTime = endTime;
+		return deltaTime;
 	}
 
 	void Window::checkSDLVersion()

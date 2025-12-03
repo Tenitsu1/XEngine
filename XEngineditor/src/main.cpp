@@ -15,7 +15,7 @@
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
 
-#include "XEngine/accelerators/obvh.h"
+#include "XEngine/accelerators/bvh.h"
 
 #include "external/imgui/imgui.h"
 #include "external/glm/glm.hpp"
@@ -68,8 +68,7 @@ private:
 	GLuint mScreenTexture = 0;
 	int mCurrentFrame = 0;
 
-	uint64_t nowTime = Engine::Instance().getWindow().getDeltaTime();
-	uint64_t laseTime = 0;
+	uint64_t nowTime = 0;
 	float deltaTime = 0;
 	int triangleCount = 0; 
 
@@ -106,9 +105,6 @@ public:
 		if (!mGBuffer->initialize(width, height)) XENGINE_ERROR("Failed to initialize GBuffer!");
 		mGBufferShader = std::make_shared<Shader>("shaders/gbuffer.vert", "shaders/gbuffer.frag");
 
-
-
-		triangleCount = (int)Mesh.indices.size();
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mShader->createTexture(width, height);
 		mShader->setFBO();
@@ -124,25 +120,31 @@ public:
 		unsigned int quadIndices[] = { 0, 1, 2, 0, 2, 3 };
 		mShader->setEBO(quadIndices, sizeof(quadIndices));
 		mShader->bind(quadVertices, 4, 4);
+
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\test.glsl", width, height);
 		mScreenTexture = mComputeShader->createTexture(width, height);
-		//mScreenTextures[1] = mComputeShader->createTexture(width, height);
 
-		auto obvhNodes = OBVH::buildOBVH(Mesh);
-		auto bvhNodes = OBVH::buildBVH(Mesh);
+		uint64_t buildTimeStart = 0;
+		Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
+		XENGINE_TRACE("Starting to build BVH...");
+		auto bvhNodes = BVH::buildBVH(Mesh);
+		float buildTime = Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
+		XENGINE_TRACE("BVH Build Time: {:.4f} seconds", buildTime);
+		auto leafNode = BVH::getLeafNode(bvhNodes);
+
 		const auto& packedTris = mModel->getPackedTriangles();
 		if (!packedTris.empty()) {
 			mComputeShader->createSSBO(mPackedTriSSBO,
 				(uint32_t)packedTris.size() * sizeof(PackedTriangle),
-				packedTris.data(),
-				15);
+				packedTris.data(), 15);
 
 			XENGINE_TRACE("PackedTriangle SSBO created, size: {}", packedTris.size());
 		}
 
+		triangleCount = (int)Mesh.indices.size();
 		if (triangleCount > 0)
 		{
-			mComputeShader->createSSBO(mOBVHSSBO, (uint32_t)bvhNodes.size() * sizeof(OBVH::BVHNode), bvhNodes.data(), 2);
+			mComputeShader->createSSBO(mOBVHSSBO, (uint32_t)bvhNodes.size() * sizeof(BVH::BVHNode), bvhNodes.data(), 2);
 			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.data(), 3);
 			mComputeShader->createSSBO(mIndicesSSBO, (uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.data(), 4);
 			mComputeShader->createSSBO(mFaceNormalsSSBO, (uint32_t)Mesh.faceNormals.size() * sizeof(glm::vec4), Mesh.faceNormals.data(), 5);
@@ -181,7 +183,7 @@ public:
 					(uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.size());
 				XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.size());
-				XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
+				XENGINE_TRACE("FaceNormals SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.faceNormals.size() * sizeof(glm::vec4), Mesh.faceNormals.size());
 				XENGINE_TRACE("TexCoords SSBO created, size: {}, count: {}",
 					(uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.size());
@@ -189,8 +191,13 @@ public:
 					(uint32_t)Mesh.materialIndices.size() * sizeof(int), Mesh.materialIndices.size());
 				XENGINE_TRACE("MaterialData SSBO created, size: {}, count: {}",
 					(uint32_t)materials.size() * sizeof(Material), materials.size());
-				XENGINE_TRACE("OBVH Nodes SSBO created, size: {}, count: {}",
-					(uint32_t)obvhNodes.size() * sizeof(OBVH::OBVHNode), obvhNodes.size());
+				XENGINE_TRACE("BVH Nodes SSBO created, size: {}, count: {}",
+					(uint32_t)bvhNodes.size() * sizeof(BVH::BVHNode), bvhNodes.size());
+				XENGINE_TRACE("{} Leafs (min, median, max, mode, avg)", leafNode.count);
+				XENGINE_TRACE("depth    = ({}, {:.1f}, {}, {}, {:.2f})",
+					leafNode.depth.minValue, leafNode.depth.medianValue, leafNode.depth.maxValue, leafNode.depth.modeValue, leafNode.depth.averageValue);
+				XENGINE_TRACE("triangle = ({}, {:.1f}, {}, {}, {:.2f})",
+					leafNode.triangleCount.minValue, leafNode.triangleCount.medianValue, leafNode.triangleCount.maxValue, leafNode.triangleCount.modeValue, leafNode.triangleCount.averageValue);
 			}
 		}
 
@@ -235,21 +242,14 @@ public:
 		auto windowSize = Engine::Instance().getWindow().getWindowSize();
 
 		// Calculate the delta time
-		laseTime = nowTime;
-		nowTime = Engine::Instance().getWindow().getDeltaTime();
-		deltaTime = (float)((nowTime - laseTime) * 1000 / (float)Engine::Instance().getWindow().getDeltaTime());
+		deltaTime = Engine::Instance().getWindow().getDeltaTime(nowTime);
 
-		float timeStep = deltaTime * 10.0f;
+		float timeStep = deltaTime * .1f;
 
 
 		// Camera Updata
-		cameraUpdated = mCameraController->OnUpdate(timeStep);
-
-		if (GuiCameraChanged)
-		{
-			cameraUpdated = true;     
-			GuiCameraChanged = false;
-		}
+		cameraUpdated = mCameraController->OnUpdate(timeStep) || GuiCameraChanged;
+		GuiCameraChanged = false;
 	}
 
 	void render() override
