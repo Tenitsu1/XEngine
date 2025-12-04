@@ -12,21 +12,24 @@
 namespace XEngine::BVH {
     std::vector<BVHNode> buildBVH(Mesh& mesh, std::vector<PackedTriangle>& packedTris) {
         std::vector<BVHNode> nodes;
+        std::vector<Bounds::Bound3> triangleAABBs(mesh.indices.size());
+        Bounds::Bound3 AABB;
 
-        std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
+        for (size_t i = 0; i < mesh.indices.size(); ++i) {
+            const glm::ivec4& face = mesh.indices[i];
+            Bounds::Bound3 triangleAABB = Bounds::Bound3(
+                mesh.vertices[face.x],
+                mesh.vertices[face.y],
+                mesh.vertices[face.z]
+            );
+            triangleAABBs[i] = triangleAABB;
+            AABB = AABB.Union(triangleAABB);
+        }
+
+        std::function<int(int, int, int, Bounds::Bound3)> buildNode = [&](int start, int end, int depth, Bounds::Bound3 aabb) -> int {
             const int count = end - start;
+            
             BVHNode node;
-            Bounds::Bound3 aabb;
-
-            // 計算 AABB
-            for (int i = start; i < end; i++) {
-                const glm::ivec4& face = mesh.indices[i];
-                aabb = aabb.Union(Bounds::Bound3(
-                    mesh.vertices[face.x],
-                    mesh.vertices[face.y],
-                    mesh.vertices[face.z]
-                ));
-            }
             node.aabbMin = aabb.min;
             node.aabbMax = aabb.max;
 
@@ -42,48 +45,59 @@ namespace XEngine::BVH {
 
             // SAH 分割
             int bestAxis = -1, bestSplit = -1;
+            Bounds::Bound3 bestLeftAABB, bestRightAABB;
             float bestCost = std::numeric_limits<float>::max();
+            std::vector<glm::vec3> centers3(count);
+            for (int i = 0; i < count; ++i) {
+                const glm::ivec4& face = mesh.indices[start + i];
+                glm::vec3 center = (mesh.vertices[face.x] + mesh.vertices[face.y] + mesh.vertices[face.z]) / 3.0f;
+                centers3[i] = center;
+            }
+
+            std::vector<std::vector<std::pair<float, int>>> centersPerAxis(3);
             for (int axis = 0; axis < 3; ++axis) {
                 // 根據三角形中心排序
-                std::vector<std::pair<float, int>> centers(count);
+                std::vector<std::pair<float, int>>& centers = centersPerAxis[axis];
+                centers.resize(count);
                 for (int i = 0; i < count; ++i) {
-                    const glm::ivec4& face = mesh.indices[start + i];
-                    glm::vec3 center = (mesh.vertices[face.x] + mesh.vertices[face.y] + mesh.vertices[face.z]) / 3.0f;
-                    centers[i] = { center[axis], i };
+                    centers[i] = { centers3[i][axis], i };
                 }
                 std::sort(centers.begin(), centers.end());
+            }
+
+            for (int axis = 0; axis < 3; ++axis) {
+                std::vector<std::pair<float, int>> centers = centersPerAxis[axis];
 
                 // 前綴/後綴 AABB
                 std::vector<Bounds::Bound3> leftAABBs(count), rightAABBs(count);
-                Bounds::Bound3 leftAABB, rightAABB;
-                for (int i = 0; i < count; ++i) {
-                    const glm::ivec4& face = mesh.indices[start + centers[i].second];
-                    leftAABB = leftAABB.Union(Bounds::Bound3(
-                        mesh.vertices[face.x],
-                        mesh.vertices[face.y],
-                        mesh.vertices[face.z]
-                    ));
-                    leftAABBs[i] = leftAABB;
-                }
-                for (int i = count - 1; i >= 0; --i) {
-                    const glm::ivec4& face = mesh.indices[start + centers[i].second];
-                    rightAABB = rightAABB.Union(Bounds::Bound3(
-                        mesh.vertices[face.x],
-                        mesh.vertices[face.y],
-                        mesh.vertices[face.z]
-                    ));
-                    rightAABBs[i] = rightAABB;
+                {
+                    std::vector<Bounds::Bound3> AABBs(count);
+                    for (int i = 0; i < count; ++i) {
+                        AABBs[i] = triangleAABBs[start + centers[i].second];
+                    }
+                    
+                    Bounds::Bound3 leftAABB, rightAABB;
+                    for (int i = 0, j = count - 1; i < count; ++i, --j) {
+                        leftAABB = leftAABB.Union(AABBs[i]);
+                        rightAABB = rightAABB.Union(AABBs[j]);
+                        leftAABBs[i] = leftAABB;
+                        rightAABBs[j] = rightAABB;
+                    }
                 }
 
                 // 嘗試所有分割點
                 for (int i = 1; i < count; ++i) {
-                    float leftArea = leftAABBs[i - 1].SurfaceArea();
-                    float rightArea = rightAABBs[i].SurfaceArea();
+                    Bounds::Bound3 leftAABB = leftAABBs[i - 1];
+                    Bounds::Bound3 rightAABB = rightAABBs[i];
+                    float leftArea = leftAABB.SurfaceArea();
+                    float rightArea = rightAABB.SurfaceArea();
                     float cost = leftArea * i + rightArea * (count - i);
                     if (cost < bestCost) {
                         bestCost = cost;
                         bestAxis = axis;
                         bestSplit = i;
+                        bestLeftAABB = leftAABB;
+                        bestRightAABB = rightAABB;
                     }
                 }
             }
@@ -97,42 +111,40 @@ namespace XEngine::BVH {
             }
 
             // 依最佳分割重排
-            std::vector<std::pair<float, int>> centers(count);
-            for (int i = 0; i < count; ++i) {
-                const glm::ivec4& face = mesh.indices[start + i];
-                glm::vec3 center = (mesh.vertices[face.x] + mesh.vertices[face.y] + mesh.vertices[face.z]) / 3.0f;
-                centers[i] = { center[bestAxis], i };
-            }
-            std::sort(centers.begin(), centers.end());
+            std::vector<std::pair<float, int>> centers = centersPerAxis[bestAxis];
 
             // in-place 重排
             std::vector<glm::ivec4> newIndices(count);
             std::vector<glm::vec4> newNormals(count);
             std::vector<int> newMaterials(count);
             std::vector<PackedTriangle> newPackedTris(count);
+            std::vector<Bounds::Bound3> newAABBs(count);
             for (int i = 0; i < count; ++i) {
                 int idx = centers[i].second + start;
                 newIndices[i] = mesh.indices[idx];
                 newNormals[i] = mesh.faceNormals[idx];
                 newMaterials[i] = mesh.materialIndices[idx];
                 newPackedTris[i] = packedTris[idx];
+                newAABBs[i] = triangleAABBs[idx];
             }
             for (int i = 0; i < count; ++i) {
                 mesh.indices[start + i] = newIndices[i];
                 mesh.faceNormals[start + i] = newNormals[i];
                 mesh.materialIndices[start + i] = newMaterials[i];
                 packedTris[start + i] = newPackedTris[i];
+                triangleAABBs[start + i] = newAABBs[i];
             }
 
             // 遞迴建立左右子節點
             int mid = start + bestSplit;
-            node.left = buildNode(start, mid, depth - 1);
-            node.right = buildNode(mid, end, depth - 1);
+            node.left = buildNode(start, mid, depth - 1, bestLeftAABB);
+            node.right = buildNode(mid, end, depth - 1, bestRightAABB);
             nodes[currentIndex] = node;
             return currentIndex;
         };
 
-        buildNode(0, (int)mesh.indices.size(), MAX_DEPTH);
+        buildNode(0, (int)mesh.indices.size(), MAX_DEPTH, AABB);
+
         return nodes;
     }
 

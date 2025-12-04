@@ -159,7 +159,11 @@ vec3 getRayDir(vec2 pixel) {
 }
 
 vec3 barycentric(vec3 n0, vec3 n1, vec3 n2, float u, float v) {
-    return normalize(n0 * (1.0 - u - v) + n1 * u + n2 * v);
+    return n0 * (1.0 - u - v) + n1 * u + n2 * v;
+}
+
+vec2 barycentric(vec2 n0, vec2 n1, vec2 n2, float u, float v) {
+    return n0 * (1.0 - u - v) + n1 * u + n2 * v;
 }
 
 vec3 getBaseColor(Material mat, vec2 uv) {
@@ -181,9 +185,11 @@ vec3 cosine_weighted_direction(vec3 normal, inout uint state) {
     float phi = 2.0 * PI * r1;
     float cosTheta = sqrt(1.0 - r2);
     float sinTheta = sqrt(r2);
-    vec3 tangent = normalize(abs(normal.x) > 0.1 ? cross(normal, vec3(0,1,0)) : cross(normal, vec3(1,0,0)));
-    vec3 bitangent = cross(normal, tangent);
-    return normalize(cosTheta * normal + sinTheta * cos(phi) * tangent + sinTheta * sin(phi) * bitangent);
+    vec3 H; H.x = sinTheta * cos(phi); H.y = sinTheta * sin(phi); H.z = cosTheta;
+    vec3 U = abs(normal.x) > 0.1 ? vec3(0,1,0) : vec3(1,0,0);
+    vec3 Tangent = normalize(cross(U, normal));
+    vec3 Bitangent = cross(normal, Tangent);
+    return normalize(Tangent * H.x + Bitangent * H.y + normal * H.z);
 }
 
 vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
@@ -279,8 +285,10 @@ vec4 RayBVH(Ray ray) {
         const int idx = idxStack[--stackPtr];
         BVHNode node = bvhNodes[idx];
 
-        if (node.count > 0) { // Leaf
-            for (int i = node.start; i < node.start + node.count; i++) {   
+        if (node.count > 0) {
+            // 葉節點
+            const int end = node.start + node.count;
+            for (int i = node.start; i < end; i++) {   
                 // const vec3 temp = RayTriangle(ray, indices[i]);
                 const vec3 temp = RayTrianglePacked(ray, packedTris[i]);
 
@@ -290,18 +298,21 @@ vec4 RayBVH(Ray ray) {
                 }
             }
         } else {
-            const BVHNode nodeLeft = bvhNodes[node.left];
-            const BVHNode nodeRight = bvhNodes[node.right];
+            const int leftIdx = node.left;
+            const int rightIdx = node.right;
+
+            const BVHNode nodeLeft = bvhNodes[leftIdx];
+            const BVHNode nodeRight = bvhNodes[rightIdx];
             const float tLeft = RayBoundingBox_t(ray, nodeLeft.aabbMin.xyz, nodeLeft.aabbMax.xyz);
             const float tRight = RayBoundingBox_t(ray, nodeRight.aabbMin.xyz, nodeRight.aabbMax.xyz);
 
             if (isinf(tMax) || tLeft < tMax || tRight < tMax) {
                 if (tLeft < tRight) {
-                    if (tRight < tMax) idxStack[stackPtr++] = node.right;
-                    if (tLeft < tMax)  idxStack[stackPtr++] = node.left;
+                    if (tRight < tMax) idxStack[stackPtr++] = rightIdx;
+                    if (tLeft < tMax)  idxStack[stackPtr++] = leftIdx;
                 } else {
-                    if (tLeft < tMax)  idxStack[stackPtr++] = node.left;
-                    if (tRight < tMax) idxStack[stackPtr++] = node.right;
+                    if (tLeft < tMax)  idxStack[stackPtr++] = leftIdx;
+                    if (tRight < tMax) idxStack[stackPtr++] = rightIdx;
                 }
             }
         }
@@ -314,7 +325,8 @@ vec4 RayBVH(Ray ray) {
     float tMax = INF;
     vec4 hitResult = vec4(0.0, 0.0, 0.0, -1.0);
     for (int i = 0; i < indices.length(); i++) {
-        const vec3 temp = RayTriangle(ray, indices[i]);
+        // const vec3 temp = RayTriangle(ray, indices[i]);
+        const vec3 temp = RayTrianglePacked(ray, packedTris[i]);
         if (temp == vec3(-1.0)) continue;
 
         if (temp.x < tMax) {
@@ -326,38 +338,44 @@ vec4 RayBVH(Ray ray) {
 }
 
 bool hit_world(Ray ray, out HitRecord hit) {
+    // 遍歷 BVH 找到最近交點
     vec4 hitData = useOBVH ? RayBVH(ray) : RayNoBVH(ray);
     const int hitIdx = int(hitData.w);
+
+    // 無交點
     if (hitIdx == -1) return false;
 
     const ivec4 index = indices[hitIdx];
+    const float t = hitData.x, u = hitData.y, v = hitData.z;
+    hit.t = t;
+    hit.point = ray.origin + t * ray.direction;
     
-    hit.t = hitData.x;
-    hit.point = ray.origin + hit.t * ray.direction;
-    
+    // 法線
     const vec3 geoNormal = geoNormals[hitIdx].xyz;
-    hit.frontFace = dot(ray.direction, geoNormal) < 0.0;
-    hit.geoNormal = hit.frontFace ? geoNormal : -geoNormal;
+    const bool frontFace = dot(ray.direction, geoNormal) < 0.0;
+    hit.frontFace = frontFace;
+    hit.geoNormal = frontFace ? geoNormal : -geoNormal;
+    hit.shadingNormal = hit.geoNormal;
 
-    const float u = hitData.y;
-    const float v = hitData.z;
-
+    // 插值法線
     const vec3 n0 = vertexNormals[index.x].xyz;
     const vec3 n1 = vertexNormals[index.y].xyz;
     const vec3 n2 = vertexNormals[index.z].xyz;
-    const vec3 normal = barycentric(n0, n1, n2, u, v);
-    
-    hit.shadingNormal = dot(hit.geoNormal, normal) > 0.0 ? normal : -normal;
+    const vec3 shadingNormal = normalize(barycentric(n0, n1, n2, u, v));
+    hit.shadingNormal = dot(hit.geoNormal, shadingNormal) > 0.0 ? shadingNormal : -shadingNormal;
 
-    hit.materialID = materialIndices[hitIdx];
-    Material mat = materials[hit.materialID];
+    // 材質 顏色
+    const int matID = materialIndices[hitIdx];
+    hit.materialID = matID;
+    Material mat = materials[matID];
     
+    // 顏色插值
     const vec2 uv0 = texCoords[index.x];
     const vec2 uv1 = texCoords[index.y];
     const vec2 uv2 = texCoords[index.z];
-    const vec2 hitUV = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
-    
+    const vec2 hitUV = barycentric(uv0, uv1, uv2, u, v);
     hit.color = getBaseColor(mat, hitUV);
+
     return true;
 }
 
