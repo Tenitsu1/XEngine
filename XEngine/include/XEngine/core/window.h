@@ -45,7 +45,7 @@ namespace XEngine::core
 
 		static void checkSDLVersion();
 		glm::ivec2 getWindowSize();
-		uint64_t getDeltaTime();
+		float getDeltaTime(uint64_t& startTime);
 
 		inline SDL_Window* getSDLWindow() { return mWindow; }
 		inline SDL_GLContext getGLContext() { return mGLContext; }

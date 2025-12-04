@@ -933,9 +933,9 @@ namespace XEngine::graphics
 
 			PackedTriangle tri;
 
-			// v0.w 存放材質索引 (轉換為 float 存儲)
-			float matIdx = (float)mMesh.materialIndices[i];
-			tri.v0 = glm::vec4(p0, matIdx);
+			// v0.w doubleSided (轉換為 float 存儲) (0.0 false, 1.0 true)
+			float doubleSided = (float)idx.w;
+			tri.v0 = glm::vec4(p0, doubleSided);
 
 			// 預計算邊向量 e1, e2
 			tri.e1 = glm::vec4(p1 - p0, 0.0f);

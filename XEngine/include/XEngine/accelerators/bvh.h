@@ -6,9 +6,9 @@
 
 struct Triangle;
 struct Mesh;
+struct PackedTriangle;
 
-
-namespace XEngine::OBVH {
+namespace XEngine::BVH {
     
 
     inline constexpr int MAX_LEAF_TRIANGLES = 2;
@@ -36,8 +36,26 @@ namespace XEngine::OBVH {
         int count = 0;  // 三角形數量（葉節點）
     };
 
-    std::vector<BVHNode> buildBVH(Mesh& mesh);
+    struct Statistics {
+        int maxValue;
+        int minValue;
+        int modeValue;
+        float medianValue;
+        float averageValue;
+    };
+
+    struct LeafNode {
+        int count;
+        std::vector<int> depths;
+        std::vector<int> triangleCounts;
+        Statistics depth;
+        Statistics triangleCount;
+    };
+
+    std::vector<BVHNode> buildBVH(Mesh& mesh, std::vector<PackedTriangle>& packedTris);
     std::vector<OBVHNode> buildOBVH(Mesh& mesh);
+    LeafNode getLeafNode(const std::vector<BVHNode>& nodes);
+    Statistics getStatistics(const std::vector<int>& nodes);
     Mesh mergeMeshes(const std::vector<Mesh>& meshes);
 }
 #endif
