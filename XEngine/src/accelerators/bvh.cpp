@@ -10,7 +10,7 @@
 
 
 namespace XEngine::BVH {
-    std::vector<BVHNode> buildBVH(Mesh& mesh) {
+    std::vector<BVHNode> buildBVH(Mesh& mesh, std::vector<PackedTriangle>& packedTris) {
         std::vector<BVHNode> nodes;
 
         std::function<int(int, int, int)> buildNode = [&](int start, int end, int depth) -> int {
@@ -109,16 +109,19 @@ namespace XEngine::BVH {
             std::vector<glm::ivec4> newIndices(count);
             std::vector<glm::vec4> newNormals(count);
             std::vector<int> newMaterials(count);
+            std::vector<PackedTriangle> newPackedTris(count);
             for (int i = 0; i < count; ++i) {
                 int idx = centers[i].second + start;
                 newIndices[i] = mesh.indices[idx];
                 newNormals[i] = mesh.faceNormals[idx];
                 newMaterials[i] = mesh.materialIndices[idx];
+                newPackedTris[i] = packedTris[idx];
             }
             for (int i = 0; i < count; ++i) {
                 mesh.indices[start + i] = newIndices[i];
                 mesh.faceNormals[start + i] = newNormals[i];
                 mesh.materialIndices[start + i] = newMaterials[i];
+                packedTris[start + i] = newPackedTris[i];
             }
 
             // 遞迴建立左右子節點

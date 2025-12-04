@@ -100,6 +100,7 @@ public:
 		auto& Mesh = mModel->getMesh();
 
 		std::vector<Material> materials = mModel->getMaterials();
+		auto& packedTris = mModel->mPackedTriangles;
 
 		mGBuffer = std::make_shared<graphics::GBuffer>();
 		if (!mGBuffer->initialize(width, height)) XENGINE_ERROR("Failed to initialize GBuffer!");
@@ -127,12 +128,12 @@ public:
 		uint64_t buildTimeStart = 0;
 		Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
 		XENGINE_TRACE("Starting to build BVH...");
-		auto bvhNodes = BVH::buildBVH(Mesh);
+		auto bvhNodes = BVH::buildBVH(Mesh, packedTris);
 		float buildTime = Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
 		XENGINE_TRACE("BVH Build Time: {:.4f} seconds", buildTime);
 		auto leafNode = BVH::getLeafNode(bvhNodes);
 
-		const auto& packedTris = mModel->getPackedTriangles();
+
 		if (!packedTris.empty()) {
 			mComputeShader->createSSBO(mPackedTriSSBO,
 				(uint32_t)packedTris.size() * sizeof(PackedTriangle),

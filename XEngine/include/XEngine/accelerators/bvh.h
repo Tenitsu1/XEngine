@@ -6,7 +6,7 @@
 
 struct Triangle;
 struct Mesh;
-
+struct PackedTriangle;
 
 namespace XEngine::BVH {
     
@@ -52,7 +52,7 @@ namespace XEngine::BVH {
         Statistics triangleCount;
     };
 
-    std::vector<BVHNode> buildBVH(Mesh& mesh);
+    std::vector<BVHNode> buildBVH(Mesh& mesh, std::vector<PackedTriangle>& packedTris);
     std::vector<OBVHNode> buildOBVH(Mesh& mesh);
     LeafNode getLeafNode(const std::vector<BVHNode>& nodes);
     Statistics getStatistics(const std::vector<int>& nodes);

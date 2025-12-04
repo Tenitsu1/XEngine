@@ -33,6 +33,7 @@ namespace XEngine::graphics
 	class GLTFStaticMesh
 	{
 	public:
+		std::vector<PackedTriangle> mPackedTriangles;
 		glm::vec3 getBoundsMin() const { return m_boundsMin; }
 		glm::vec3 getBoundsMax() const { return m_boundsMax; }
 	private:
@@ -90,7 +91,6 @@ namespace XEngine::graphics
 		std::vector<GLuint> mTextures;
 
 		std::map<int, std::vector<RenderPrimitive>> mRenderCache;
-		std::vector<PackedTriangle> mPackedTriangles;
 
 	};
 }

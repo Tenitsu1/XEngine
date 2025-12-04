@@ -135,7 +135,7 @@ vec2 RandomDirection2D(inout uint state) {
 
 vec3 RandomDirection(inout uint state) {
     float z = RandomValue(state) * 2.0 - 1.0;
-    float a = RandomValue(state) * 6.28318530718;
+    float a = RandomValue(state) * 2.0 * PI;
     float r = sqrt(1.0 - z * z);
     return vec3(r * cos(a), r * sin(a), z);
 }
@@ -175,7 +175,7 @@ vec3 F_Schlick(float cosTheta, vec3 F0) {
 }
 
 // PBR Sampling functions
-vec3 cosine_weighted_direction(vec3 normal, inout uint state, vec3 geoNormal) {
+vec3 cosine_weighted_direction(vec3 normal, inout uint state) {
     float r1 = RandomValue(state);
     float r2 = RandomValue(state);
     float phi = 2.0 * PI * r1;
@@ -183,8 +183,7 @@ vec3 cosine_weighted_direction(vec3 normal, inout uint state, vec3 geoNormal) {
     float sinTheta = sqrt(r2);
     vec3 tangent = normalize(abs(normal.x) > 0.1 ? cross(normal, vec3(0,1,0)) : cross(normal, vec3(1,0,0)));
     vec3 bitangent = cross(normal, tangent);
-    vec3 dir = normalize(cosTheta * normal + sinTheta * cos(phi) * tangent + sinTheta * sin(phi) * bitangent);
-    return dot(dir, geoNormal) < 0.0 ? -dir : dir;
+    return normalize(cosTheta * normal + sinTheta * cos(phi) * tangent + sinTheta * sin(phi) * bitangent);
 }
 
 vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
@@ -202,6 +201,31 @@ vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
 }
 
 // --- Triangle intersect ---
+vec3 RayTrianglePacked(Ray ray, PackedTriangle tri) {
+    const vec3 p0 = tri.v0.xyz;
+    const vec3 edge1 = tri.e1.xyz;
+    const vec3 edge2 = tri.e2.xyz;
+    const bool doubleSided = bool(tri.v0.w);
+
+    const vec3 pvec = cross(ray.direction, edge2);
+    const float det = dot(edge1, pvec);
+    const float DET = doubleSided ? abs(det) : det;
+    if (DET < EPSILON) return vec3(-1.0);
+
+    const float invDet = 1.0 / det;
+    const vec3 tvec = ray.origin - p0;
+    const float u = dot(tvec, pvec) * invDet;
+    if (u < 0.0 || u > 1.0) return vec3(-1.0);
+
+    const vec3 qvec = cross(tvec, edge1);
+    const float v = dot(ray.direction, qvec) * invDet;
+    if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
+
+    const float t = dot(edge2, qvec) * invDet;
+    if (t < EPSILON) return vec3(-1.0);
+    return vec3(t, u, v);
+}
+
 vec3 RayTriangle(Ray ray, ivec4 index) {
     const vec3 p0 = vertices[index.x].xyz;
     const vec3 p1 = vertices[index.y].xyz;
@@ -214,25 +238,19 @@ vec3 RayTriangle(Ray ray, ivec4 index) {
 
     const float det = dot(edge1, pvec);
     const float DET = doubleSided ? abs(det) : det;
-
     if (DET < EPSILON) return vec3(-1.0);
 
     const float invDet = 1.0 / det;
     const vec3 tvec = ray.origin - p0;
-
     const float u = dot(tvec, pvec) * invDet;
-
     if (u < 0.0 || u > 1.0) return vec3(-1.0);
 
     const vec3 qvec = cross(tvec, edge1);
     const float v = dot(ray.direction, qvec) * invDet;
-
     if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
 
     const float t = dot(edge2, qvec) * invDet;
-
     if (t < EPSILON) return vec3(-1.0);
-
     return vec3(t, u, v);
 }
 
@@ -250,9 +268,8 @@ float RayBoundingBox_t(Ray ray, vec3 minB, vec3 maxB) {
 }
 
 vec4 RayBVH(Ray ray) {
-    float tMax = 1e9;
-    int hitIdx = -1;
-    vec3 hitResult = vec3(0.0);
+    float tMax = INF;
+    vec4 hitResult = vec4(0.0, 0.0, 0.0, -1.0);
 
     int idxStack[MAX_STACK_SIZE];
     int stackPtr = 0;
@@ -264,13 +281,12 @@ vec4 RayBVH(Ray ray) {
 
         if (node.count > 0) { // Leaf
             for (int i = node.start; i < node.start + node.count; i++) {   
-                const vec3 temp = RayTriangle(ray, indices[i]);
-                if (temp == vec3(-1.0)) continue;
+                // const vec3 temp = RayTriangle(ray, indices[i]);
+                const vec3 temp = RayTrianglePacked(ray, packedTris[i]);
 
-                if (temp.x < tMax) {
+                if (temp.x != -1.0 && temp.x < tMax) {
                     tMax = temp.x;
-                    hitIdx = i;
-                    hitResult = temp;
+                    hitResult = vec4(temp, i);
                 }
             }
         } else {
@@ -279,34 +295,34 @@ vec4 RayBVH(Ray ray) {
             const float tLeft = RayBoundingBox_t(ray, nodeLeft.aabbMin.xyz, nodeLeft.aabbMax.xyz);
             const float tRight = RayBoundingBox_t(ray, nodeRight.aabbMin.xyz, nodeRight.aabbMax.xyz);
 
-            if (tLeft > tRight) {
-                if (tLeft < tMax) idxStack[stackPtr++] = node.left;
-                if (tRight < tMax) idxStack[stackPtr++] = node.right;
-            } else {
-                if (tRight < tMax) idxStack[stackPtr++] = node.right;
-                if (tLeft < tMax) idxStack[stackPtr++] = node.left;
+            if (isinf(tMax) || tLeft < tMax || tRight < tMax) {
+                if (tLeft < tRight) {
+                    if (tRight < tMax) idxStack[stackPtr++] = node.right;
+                    if (tLeft < tMax)  idxStack[stackPtr++] = node.left;
+                } else {
+                    if (tLeft < tMax)  idxStack[stackPtr++] = node.left;
+                    if (tRight < tMax) idxStack[stackPtr++] = node.right;
+                }
             }
         }
     }
-    return vec4(hitResult, float(hitIdx));
+    return hitResult;
 }
 
 // --- hit function ---
  vec4 RayNoBVH(Ray ray) {
-    float tMax = 1e9;
-    int hitIdx = -1;
-    vec3 hitResult = vec3(0.0);
+    float tMax = INF;
+    vec4 hitResult = vec4(0.0, 0.0, 0.0, -1.0);
     for (int i = 0; i < indices.length(); i++) {
         const vec3 temp = RayTriangle(ray, indices[i]);
         if (temp == vec3(-1.0)) continue;
 
         if (temp.x < tMax) {
             tMax = temp.x;
-            hitIdx = i;
-            hitResult = temp;
+            hitResult = vec4(temp, i);
         }
     }
-    return vec4(hitResult, float(hitIdx));
+    return hitResult;
 }
 
 bool hit_world(Ray ray, out HitRecord hit) {
@@ -321,7 +337,7 @@ bool hit_world(Ray ray, out HitRecord hit) {
     
     const vec3 geoNormal = geoNormals[hitIdx].xyz;
     hit.frontFace = dot(ray.direction, geoNormal) < 0.0;
-    hit.geoNormal = geoNormal;
+    hit.geoNormal = hit.frontFace ? geoNormal : -geoNormal;
 
     const float u = hitData.y;
     const float v = hitData.z;
@@ -331,8 +347,8 @@ bool hit_world(Ray ray, out HitRecord hit) {
     const vec3 n2 = vertexNormals[index.z].xyz;
     const vec3 normal = barycentric(n0, n1, n2, u, v);
     
-    hit.shadingNormal = (dot(hit.geoNormal, normal) > 0.0) ? normal : -normal;
-    
+    hit.shadingNormal = dot(hit.geoNormal, normal) > 0.0 ? normal : -normal;
+
     hit.materialID = materialIndices[hitIdx];
     Material mat = materials[hit.materialID];
     
@@ -348,18 +364,15 @@ bool hit_world(Ray ray, out HitRecord hit) {
 // ----------------------------------------------------
 // Trace Ray
 // ----------------------------------------------------
-vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
+vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
     vec3 throughput = vec3(1.0); 
     vec3 finalColor = vec3(0.0);
 
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
-        if (dot(throughput, throughput) < 1e-6) break;
+        if (length(throughput) < 1e-6) break;
 
         HitRecord hit;
-        if (!hit_world(ray, hit)) {
-            // finalColor += throughput * vec3(0.05); // Skybox color
-            break;
-        }
+        if (!hit_world(ray, hit)) break;
 
         // gNormal (When Depth == 0)
         if (depth == 0) {
@@ -377,7 +390,7 @@ vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
         // Emission
         vec3 emission = material.emissionFactor.rgb * material.emissionFactor.a;
         if (length(emission) > 0.0) {
-            finalColor += int(hit.frontFace) * throughput * emission;
+            if (hit.frontFace) finalColor += throughput * emission;
 
             if (material.type == LIGHT) break;
         }
@@ -386,72 +399,71 @@ vec3 trace_ray(Ray ray, inout uint state, ivec2 pixel) {
         if (depth >= 2) {
             float p = max(throughput.r, max(throughput.g, throughput.b));
             if (RandomValue(state) > p) break;
-            throughput *= 1.0 / p;
+            throughput /= p;
         }
-
-        vec3 bias = hit.frontFace ? (hit.geoNormal * 1e-2) : (-hit.geoNormal * 1e-2);
-        ray.origin = hit.point + bias;
 
         // Material (PBR / Glass)
         if (material.transmissionFactor > 0.0) {
-            float ior = material.ior;
-            float eta = hit.frontFace ? (1.0 / ior) : ior;
-            vec3 refracted = refract(ray.direction, N, eta);
+            const float ior = material.ior;
+            const float eta = hit.frontFace ? (1.0 / ior) : ior;
+            const vec3 refracted = refract(ray.direction, N, eta);
 
-            ray.direction = reflect(ray.direction, N);
+            float fresnel = 1.0;
+            float RV = 0.0;
 
-            if (length(refracted) != 0.0) {
+            if (length(refracted) > 1e-6) {
+                // 無全反射時計算 Fresnel 機率
                 float R0 = (1.0 - ior) / (1.0 + ior);
                 float R1 = R0 * R0;
                 float cosTheta = min(dot(V, N), 1.0);
-                float fresnel = R1 + (1.0 - R1) * pow(1.0 - cosTheta, 5);
-
-                if (RandomValue(state) >= fresnel) {
-                    ray.direction = refracted;
-                    ray.origin = hit.point - bias;
-                }
+                fresnel = R1 + (1.0 - R1) * pow(1.0 - cosTheta, 5);
+                RV = RandomValue(state);
             }
-            throughput *= hit.color;
+
+            // 全反射或 Fresnel 機率下反射
+            // 否則折射
+            ray.direction = RV < fresnel ? reflect(ray.direction, N) : refracted;
+            throughput *= hit.color * material.transmissionFactor;
         } else { // PBR
-            float roughness = material.roughnessFactor;
-            float metallic = material.metallicFactor;
-            vec3 F0 = mix(vec3(0.04), hit.color, metallic);
+            const float metallic = material.metallicFactor;
+            const vec3 F0 = mix(vec3(0.04), hit.color, metallic);
             
-            float cosTheta = max(dot(N, V), 0.0);
-            vec3 F = F_Schlick(cosTheta, F0);
+            const float cosTheta = max(dot(N, V), 0.0);
+            const vec3 F = F_Schlick(cosTheta, F0);
             float specularProb = max(F.r, max(F.g, F.b));
             specularProb = mix(specularProb, 1.0, metallic);
             specularProb = clamp(specularProb, 0.05, 1.0);
 
             if (RandomValue(state) < specularProb) {
-                vec3 H = ImportanceSampleGGX(state, N, roughness);
-                vec3 L = reflect(-V, H);
+                const float roughness = material.roughnessFactor;
+                const vec3 H = ImportanceSampleGGX(state, N, roughness);
+                const vec3 L = reflect(-V, H);
                 ray.direction = L;
 
                 if (dot(N, L) <= 0.0) break;
 
-                vec3 specColor = mix(vec3(1.0), hit.color, metallic);
-                throughput *= specColor;
-                throughput /= specularProb;
+                throughput *= mix(vec3(1.0), hit.color, metallic);
+                throughput /= specularProb; // balance energy
 
             } else {
                 if (metallic >= 1.0) break; 
-                ray.direction = cosine_weighted_direction(N, state, hit.geoNormal);
+                ray.direction = cosine_weighted_direction(N, state);
                 throughput *= hit.color;
-                throughput *= max(dot(hit.shadingNormal, ray.direction), 0.0);
-                throughput /= (1.0 - specularProb);
+                throughput *= max(dot(N, ray.direction), 0.0);  // lambertian cosine term
+                throughput /= (1.0 - specularProb); // balance energy
             }
         }
         ray.invDirection = 1.0 / ray.direction;
+        ray.origin = hit.point + ray.direction * 1e-2;
     }
-    return min(finalColor, vec3(10.0));
+    return min(finalColor, 10.0);
 }
 
 // ----------------------------------------------------
 void main()
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= int(u_resolution.x) || pixel.y >= int(u_resolution.y)) return;
+    if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
 
     vec4 previousData = imageLoad(screenTexture, pixel);
     vec3 oldColor = previousData.rgb;
@@ -469,7 +481,8 @@ void main()
     vec3 currentFrameColor = vec3(0.0);
     for (int i = 0; i < SAMPLES_PER_PIXEL; i++) {
         Ray ray = createRay(camera.position, dir);
-        currentFrameColor += trace_ray(ray, state, pixel);
+        vec3 rayColor = RayTrace(ray, state, pixel);
+        currentFrameColor += rayColor;
     }
     currentFrameColor /= float(SAMPLES_PER_PIXEL);
 
