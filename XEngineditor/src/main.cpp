@@ -194,12 +194,6 @@ public:
 			}
 		}
 
-		// for (int i = 0; i < Mesh.indices.size(); i++)
-		// {
-		// 	if(Mesh.indices[i].w == 1)XENGINE_TRACE("The {} th : {}", i, Mesh.indices[i].w);
-		// }
-
-
 		// --- 印出包圍盒日誌 ---
 		glm::vec3 boundsMin = mModel->getBoundsMin();
 		glm::vec3 boundsMax = mModel->getBoundsMax();
@@ -365,7 +359,6 @@ public:
 
 			ImGui::Image(
 					(void*)(intptr_t)mShader->getTexture(),
-					// (void*)(uintptr_t)mComputeShader->getTexture(),
 					{1280, 720 },
 					ImVec2(0, 1),
 					ImVec2(1, 0));
