@@ -597,6 +597,12 @@ namespace XEngine::graphics
 			mat.metallicFactor = (float)gltfMat.pbrMetallicRoughness.metallicFactor;
 			mat.roughnessFactor = (float)gltfMat.pbrMetallicRoughness.roughnessFactor;
 			mat.metallicRoughnessTexture = gltfMat.pbrMetallicRoughness.metallicRoughnessTexture.index;
+			XENGINE_INFO("baseColorFactor: {},{},{},{}", mat.baseColorFactor.r,
+				mat.baseColorFactor.g, mat.baseColorFactor.b, mat.baseColorFactor.a);
+			XENGINE_INFO("baseColorTexture: {}", mat.baseColorTexture);
+			XENGINE_INFO("metallicFactor: {}", mat.metallicFactor);
+			XENGINE_INFO("roughnessFactor: {}", mat.roughnessFactor);
+			XENGINE_INFO("metallicRoughnessTexture: {}", mat.metallicRoughnessTexture);
 
 			// 3. Normal
 			mat.normalTexture = gltfMat.normalTexture.index;
@@ -607,7 +613,8 @@ namespace XEngine::graphics
 				if (emissiveStrength != gltfMat.extensions.end() && emissiveStrength->second.IsObject()) {
 					const auto& val = emissiveStrength->second;
 					if (val.Has("emissiveStrength")) {
-						mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), (float)val.Get("emissiveStrength").GetNumberAsDouble());
+						/*mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), (float)val.Get("emissiveStrength").GetNumberAsDouble());*/
+						mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), 10);
 					}
 				}				
 			}

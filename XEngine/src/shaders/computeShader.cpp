@@ -254,4 +254,15 @@ namespace XEngine
 
 		return result;
 	}
+
+	void ComputeShader::chackBindLimit()
+	{
+		GLint maxComputeTexUnits;
+		glGetIntegerv(GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS, &maxComputeTexUnits);
+		XENGINE_TRACE("Max Compute Texture Units: {}", maxComputeTexUnits);
+
+		GLint maxCombinedTexUnits;
+		glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombinedTexUnits);
+		XENGINE_TRACE("Max Combined Texture Units: {}", maxCombinedTexUnits);
+	}
 }

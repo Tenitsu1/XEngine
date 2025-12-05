@@ -96,7 +96,8 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_girl.gltf");
+		/*mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\japanese_classroom\\sceneWithLight.gltf");*/
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\japanese_classroom\\sceneWithLight.gltf");
 		auto& Mesh = mModel->getMesh();
 
 		std::vector<Material> materials = mModel->getMaterials();
@@ -123,6 +124,7 @@ public:
 		mShader->bind(quadVertices, 4, 4);
 
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\test.glsl", width, height);
+		// mComputeShader->chackBindLimit();
 		mScreenTexture = mComputeShader->createTexture(width, height);
 
 		uint64_t buildTimeStart = 0;
@@ -287,7 +289,8 @@ public:
 			mGBuffer->bindForReading(10);
 
 			const auto& textures = mModel->getTextures();
-			for (int i = 0; i < std::min((int)textures.size(), 16); ++i) {
+			int limit = std::min((int)textures.size(), 28);
+			for (int i = 0; i < limit; ++i) {
 				// 假設 Compute Shader 裡 u_textures 改成了 binding = 20
 				mComputeShader->bindTexture(textures[i], 20 + i); 
 			}

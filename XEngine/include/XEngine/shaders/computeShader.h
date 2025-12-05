@@ -63,6 +63,8 @@ namespace XEngine
 
 			std::optional<DebugData> readDebugData();
 
+			void chackBindLimit();
+
 		private:
 			uint32_t mDebugSSBO = 0; // 除錯 SSBO 的 ID
 			uint32_t mDebugSSBOSize = 0; // 儲存 SSBO 的大小

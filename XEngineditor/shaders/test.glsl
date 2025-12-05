@@ -34,6 +34,9 @@ struct HitRecord {
     vec3 shadingNormal;
     vec3 geoNormal;
     bool frontFace;
+
+    float metallic;
+    float roughness;
 };
 
 struct Ray {
@@ -72,7 +75,7 @@ layout(std430, binding = 15) buffer PackedTriBuffer            { PackedTriangle 
 // --- Uniform ---
 layout(binding = 10) uniform sampler2D gPosition;
 layout(binding = 11) uniform sampler2D gNormal;
-layout(binding = 20) uniform sampler2D u_textures[16]; 
+layout(binding = 20) uniform sampler2D u_textures[28]; 
 
 
 uniform vec2 u_resolution;
@@ -169,9 +172,23 @@ vec2 barycentric(vec2 n0, vec2 n1, vec2 n2, float u, float v) {
 vec3 getBaseColor(Material mat, vec2 uv) {
     vec3 color = mat.baseColorFactor.rgb;
     if (mat.baseColorTexture >= 0) {
-        color *= texture(u_textures[min(mat.baseColorTexture, 15)], uv).rgb;
+        color = texture(u_textures[min(mat.baseColorTexture, 27)], uv).rgb;
     }
     return color;
+}
+
+vec2 getMetallicRoughness(Material mat, vec2 uv) {
+    float m = mat.metallicFactor;
+    float r = mat.roughnessFactor;
+    
+    if (mat.metallicRoughnessTexture >= 0) {
+        vec4 mrSample = texture(u_textures[min(mat.metallicRoughnessTexture, 27)], uv);
+        
+        m *= mrSample.b; // Blue channel for Metallic
+        r *= mrSample.g; // Green channel for Roughness
+    }
+    
+    return vec2(m, r);
 }
 
 vec3 F_Schlick(float cosTheta, vec3 F0) {
@@ -376,6 +393,11 @@ bool hit_world(Ray ray, out HitRecord hit) {
     const vec2 hitUV = barycentric(uv0, uv1, uv2, u, v);
     hit.color = getBaseColor(mat, hitUV);
 
+    // Metallic && Roughness
+    vec2 mr = getMetallicRoughness(mat, hitUV);
+    hit.metallic = mr.x;
+    hit.roughness = mr.y;
+
     return true;
 }
 
@@ -443,17 +465,22 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
             ray.direction = RV < fresnel ? reflect(ray.direction, N) : refracted;
             throughput *= hit.color * material.transmissionFactor;
         } else { // PBR
-            const float metallic = material.metallicFactor;
+            // const float metallic = material.metallicFactor;
+            const float metallic = hit.metallic; 
+
             const vec3 F0 = mix(vec3(0.04), hit.color, metallic);
             
             const float cosTheta = max(dot(N, V), 0.0);
             const vec3 F = F_Schlick(cosTheta, F0);
+
             float specularProb = max(F.r, max(F.g, F.b));
             specularProb = mix(specularProb, 1.0, metallic);
             specularProb = clamp(specularProb, 0.05, 1.0);
 
             if (RandomValue(state) < specularProb) {
-                const float roughness = material.roughnessFactor;
+                // const float roughness = material.roughnessFactor;
+                const float roughness = hit.roughness;
+
                 const vec3 H = ImportanceSampleGGX(state, N, roughness);
                 const vec3 L = reflect(-V, H);
                 ray.direction = L;
@@ -474,8 +501,10 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
         ray.invDirection = 1.0 / ray.direction;
         ray.origin = hit.point + ray.direction * 1e-2;
     }
-    return min(finalColor, 10.0);
+    return finalColor;
 }
+
+
 
 // ----------------------------------------------------
 void main()
