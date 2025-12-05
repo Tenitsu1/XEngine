@@ -218,6 +218,12 @@ namespace XEngine
 		glBindTexture(GL_TEXTURE_2D, textureID);
 	}
 
+	void ComputeShader::bindTextureArray(uint32_t textureID, int textureUnit)
+	{
+		glActiveTexture(GL_TEXTURE0 + textureUnit);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
+	}
+
 	void ComputeShader::createDebugSSBO(uint32_t binding)
 	{
 		// 如果已經創建過，先刪除舊的

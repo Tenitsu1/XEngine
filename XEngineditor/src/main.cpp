@@ -136,14 +136,6 @@ public:
 		auto leafNode = BVH::getLeafNode(bvhNodes);
 
 
-		if (!packedTris.empty()) {
-			mComputeShader->createSSBO(mPackedTriSSBO,
-				(uint32_t)packedTris.size() * sizeof(PackedTriangle),
-				packedTris.data(), 15);
-
-			XENGINE_TRACE("PackedTriangle SSBO created, size: {}", packedTris.size());
-		}
-
 		triangleCount = (int)Mesh.indices.size();
 		if (triangleCount > 0)
 		{
@@ -162,7 +154,7 @@ public:
 				XENGINE_WARN("Model has no texture coordinates!");
 			}
 
-			// [修改] Material Indices (Binding 7)
+			// Material Indices (Binding 7)
 			if (!Mesh.materialIndices.empty())
 			{
 				mComputeShader->createSSBO(mMaterialIndicesSSBO,
@@ -170,13 +162,27 @@ public:
 					Mesh.materialIndices.data(), 7);
 			}
 
-			// [新增] Material Data SSBO (Binding 8)
-			// 將整個 GPUMaterial 陣列傳入 GPU
+			// Material Data SSBO (Binding 8)
 			if (!materials.empty())
 			{
 				mComputeShader->createSSBO(mMaterialDataSSBO,
 					(uint32_t)materials.size() * sizeof(Material),
 					materials.data(), 8);
+			}
+
+			const auto& textures = mModel->getTextures();
+			int limit = std::min((int)textures.size(), 28);
+			for (int i = 0; i < limit; ++i) {
+				// 假設 Compute Shader 裡 u_textures 改成了 binding = 20
+				mComputeShader->bindTexture(textures[i], 20 + i);
+			}
+
+			if (!packedTris.empty()) {
+				mComputeShader->createSSBO(mPackedTriSSBO,
+					(uint32_t)packedTris.size() * sizeof(PackedTriangle),
+					packedTris.data(), 15);
+
+				XENGINE_TRACE("PackedTriangle SSBO created, size: {}", packedTris.size());
 			}
 
 			{
@@ -288,13 +294,6 @@ public:
 
 			mGBuffer->bindForReading(10);
 
-			const auto& textures = mModel->getTextures();
-			int limit = std::min((int)textures.size(), 28);
-			for (int i = 0; i < limit; ++i) {
-				// 假設 Compute Shader 裡 u_textures 改成了 binding = 20
-				mComputeShader->bindTexture(textures[i], 20 + i); 
-			}
-
 			// 設定 Uniforms
 			CameraData cameraShaderData = camera.GetShaderData();
 			glm::mat4 invViewProj = glm::inverse(projection * view);
@@ -345,7 +344,8 @@ public:
 			ImGui::Checkbox("Use OBVH", &useOBVH);
 
 			ImGui::Separator();
-			GuiCameraChanged |= ImGui::DragFloat3("Cam Pos", &camera.Position.x, 0.1f);
+			GuiCameraChanged |= ImGui::DragFloat3("Camera Position", &camera.Position.x, 0.1f);
+			GuiCameraChanged |= ImGui::DragFloat("Camera Zoom", &camera.Zoom, 45, 1, 90);
 
 			float speed = mCameraController->GetSpeed();
 			if (ImGui::DragFloat("Cam Speed", &speed, 0.1f)) mCameraController->SetSpeed(speed);
@@ -393,17 +393,6 @@ public:
 		}
 		ImGui::End();
 
-		if (ImGui::Begin("Camera Controller"))
-		{
-			float speed = mCameraController->GetSpeed();
-			if (ImGui::DragFloat("Move Speed", &speed, 0.1f)) {
-				mCameraController->SetSpeed(speed);
-			}
-
-			ImGui::Separator();
-			ImGui::Text("Camera Pos: (%.2f, %.2f, %.2f)", camera.Position.x, camera.Position.y, camera.Position.z);
-		}
-		ImGui::End();
 
 		ImGui::Begin("My Window");
 

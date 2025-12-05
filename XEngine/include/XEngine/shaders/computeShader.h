@@ -58,6 +58,7 @@ namespace XEngine
 			uint32_t createTexture(int width, int height);
 			void bindImageTexture(uint32_t textureID, int binding);
 			void bindTexture(uint32_t textureID, int textureUnit);
+			void bindTextureArray(uint32_t textureID, int textureUnit);
 
 			void createDebugSSBO(uint32_t binding);
 

@@ -48,10 +48,12 @@ namespace XEngine::graphics
 		void bind();
 
 		void drawModel(tinygltf::Model& model);
+		std::map<int, GLuint> generateVBOs(tinygltf::Model& model);
 		std::pair<GLuint, std::map<int, GLuint>> bindModel(tinygltf::Model& model);
 		void dbgModel(tinygltf::Model& model);
 
 		inline Mesh& getMesh() { return mMesh; }
+		inline const uint32_t getTextureArrayID() { return mTextureArrayID; }
 		inline const std::vector<GLuint>& getTextures() const { return mTextures; }
 		inline const std::vector<Material>& getMaterials() const { return mMaterials; }
 		inline const std::vector<PackedTriangle>& getPackedTriangles() const { return mPackedTriangles; }
@@ -61,8 +63,9 @@ namespace XEngine::graphics
 		void printMaterialTextureMapping(const tinygltf::Model& model);
 		void drawWithShader(std::shared_ptr<Shader> shader, tinygltf::Model& model);
 
-
+		void createTextureArray(const tinygltf::Model& model);
 	private:
+		uint32_t mTextureArrayID;
 		Mesh mMesh;
 		std::vector<Material> mMaterials;;
 		void extractMesh(tinygltf::Model& model);
@@ -81,13 +84,13 @@ namespace XEngine::graphics
 		void drawNodeRecursive(std::shared_ptr<Shader> shader, tinygltf::Model& model, int nodeIdx, const glm::mat4& parentTransform);
 		void drawMeshWithMaterial(std::shared_ptr<Shader> shader, tinygltf::Model& model, tinygltf::Mesh& mesh);
 
-		void processMesh(tinygltf::Model& model, tinygltf::Mesh& mesh, int meshIndex, std::map<int, GLuint>& bufferViewVBOs);
 		void setupRenderPrimitives(tinygltf::Model& model, std::map<int, GLuint>& bufferViewVBOs);
 
 		void buildPackedTriangles();
 
 	private:
 		std::pair<GLuint, std::map<int, GLuint>> vaoAndEbos;
+		std::map<int, GLuint> mVBOs;
 		std::vector<GLuint> mTextures;
 
 		std::map<int, std::vector<RenderPrimitive>> mRenderCache;
