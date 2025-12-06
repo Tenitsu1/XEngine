@@ -10,143 +10,180 @@
 
 
 namespace XEngine::BVH {
+    // 定義分桶數量
+    constexpr int SAH_BINS = 16;
+
+    struct SAHBin {
+        Bounds::Bound3 bounds;
+        int count = 0;
+    };
+
     std::vector<BVHNode> buildBVH(Mesh& mesh, std::vector<PackedTriangle>& packedTris) {
         std::vector<BVHNode> nodes;
-        std::vector<Bounds::Bound3> triangleAABBs(mesh.indices.size());
-        Bounds::Bound3 AABB;
+        // 預先保留記憶體以減少 resize
+        nodes.reserve(mesh.indices.size() * 2);
 
+        // 預先計算所有三角形的 AABB，避免遞迴時重複計算
+        std::vector<Bounds::Bound3> triangleAABBs(mesh.indices.size());
         for (size_t i = 0; i < mesh.indices.size(); ++i) {
             const glm::ivec4& face = mesh.indices[i];
-            Bounds::Bound3 triangleAABB = Bounds::Bound3(
+            triangleAABBs[i] = Bounds::Bound3(
                 mesh.vertices[face.x],
                 mesh.vertices[face.y],
                 mesh.vertices[face.z]
             );
-            triangleAABBs[i] = triangleAABB;
-            AABB = AABB.Union(triangleAABB);
         }
 
-        std::function<int(int, int, int, Bounds::Bound3)> buildNode = [&](int start, int end, int depth, Bounds::Bound3 aabb) -> int {
+        auto swapPrimitives = [&](int indexA, int indexB) {
+            if (indexA == indexB) return;
+            std::swap(mesh.indices[indexA], mesh.indices[indexB]);
+            std::swap(mesh.faceNormals[indexA], mesh.faceNormals[indexB]);
+            std::swap(mesh.materialIndices[indexA], mesh.materialIndices[indexB]);
+            std::swap(packedTris[indexA], packedTris[indexB]);
+            std::swap(triangleAABBs[indexA], triangleAABBs[indexB]);
+            };
+
+
+        std::function<int(int, int, int)> buildNode =
+            [&](int start, int end, int depth) -> int {
+
             const int count = end - start;
-            
-            BVHNode node;
-            node.aabbMin = aabb.min;
-            node.aabbMax = aabb.max;
-
             const int currentIndex = (int)nodes.size();
-            nodes.push_back(node);
+            nodes.emplace_back();
 
+            // 計算當前節點的整體 AABB 和 重心 AABB (Centroid AABB)
+            Bounds::Bound3 nodeAABB;
+            Bounds::Bound3 centroidAABB;
+            for (int i = start; i < end; ++i) {
+                nodeAABB = nodeAABB.Union(triangleAABBs[i]);
+                centroidAABB = centroidAABB.Union(triangleAABBs[i].Center());
+            }
+
+            // 更新節點資訊
+            nodes[currentIndex].aabbMin = nodeAABB.min;
+            nodes[currentIndex].aabbMax = nodeAABB.max;
+
+            // 終止條件：三角形數量少或達到最大深度
             if (count <= MAX_LEAF_TRIANGLES || depth <= 0) {
-                node.start = start;
-                node.count = count;
-                nodes[currentIndex] = node;
+                nodes[currentIndex].start = start;
+                nodes[currentIndex].count = count;
+                nodes[currentIndex].left = -1;
+                nodes[currentIndex].right = -1;
                 return currentIndex;
             }
 
             // SAH 分割
-            int bestAxis = -1, bestSplit = -1;
-            Bounds::Bound3 bestLeftAABB, bestRightAABB;
+            int bestAxis = -1;
             float bestCost = std::numeric_limits<float>::max();
-            std::vector<glm::vec3> centers3(count);
-            for (int i = 0; i < count; ++i) {
-                const glm::ivec4& face = mesh.indices[start + i];
-                glm::vec3 center = (mesh.vertices[face.x] + mesh.vertices[face.y] + mesh.vertices[face.z]) / 3.0f;
-                centers3[i] = center;
-            }
+            float bestSplitPos = 0.0f;
 
-            std::vector<std::vector<std::pair<float, int>>> centersPerAxis(3);
+            // 遍歷三個軸 (0:X, 1:Y, 2:Z)
             for (int axis = 0; axis < 3; ++axis) {
-                // 根據三角形中心排序
-                std::vector<std::pair<float, int>>& centers = centersPerAxis[axis];
-                centers.resize(count);
-                for (int i = 0; i < count; ++i) {
-                    centers[i] = { centers3[i][axis], i };
-                }
-                std::sort(centers.begin(), centers.end());
-            }
+                float boundsMin = centroidAABB.min[axis];
+                float boundsMax = centroidAABB.max[axis];
 
-            for (int axis = 0; axis < 3; ++axis) {
-                std::vector<std::pair<float, int>> centers = centersPerAxis[axis];
+                // 如果這個軸幾乎沒有寬度，跳過
+                if (boundsMax - boundsMin < 1e-5f) continue;
 
-                // 前綴/後綴 AABB
-                std::vector<Bounds::Bound3> leftAABBs(count), rightAABBs(count);
-                {
-                    std::vector<Bounds::Bound3> AABBs(count);
-                    for (int i = 0; i < count; ++i) {
-                        AABBs[i] = triangleAABBs[start + centers[i].second];
-                    }
-                    
-                    Bounds::Bound3 leftAABB, rightAABB;
-                    for (int i = 0, j = count - 1; i < count; ++i, --j) {
-                        leftAABB = leftAABB.Union(AABBs[i]);
-                        rightAABB = rightAABB.Union(AABBs[j]);
-                        leftAABBs[i] = leftAABB;
-                        rightAABBs[j] = rightAABB;
-                    }
+                SAHBin bins[SAH_BINS];
+                float scale = SAH_BINS / (boundsMax - boundsMin);
+
+                // Pass 1: 將三角形填入桶中
+                for (int i = start; i < end; ++i) {
+                    glm::vec3 center = triangleAABBs[i].Center();
+                    int binIdx = std::min(SAH_BINS - 1, (int)((center[axis] - boundsMin) * scale));
+                    bins[binIdx].count++;
+                    bins[binIdx].bounds = bins[binIdx].bounds.Union(triangleAABBs[i]);
                 }
 
-                // 嘗試所有分割點
-                for (int i = 1; i < count; ++i) {
-                    Bounds::Bound3 leftAABB = leftAABBs[i - 1];
-                    Bounds::Bound3 rightAABB = rightAABBs[i];
-                    float leftArea = leftAABB.SurfaceArea();
-                    float rightArea = rightAABB.SurfaceArea();
-                    float cost = leftArea * i + rightArea * (count - i);
+                // Pass 2: 評估分割代價
+                // 使用前綴和 (Sweep) 快速計算左右面積
+                float leftArea[SAH_BINS - 1], rightArea[SAH_BINS - 1];
+                int leftCount[SAH_BINS - 1], rightCount[SAH_BINS - 1];
+                Bounds::Bound3 leftBox, rightBox;
+                int leftSum = 0, rightSum = 0;
+
+                // 從左掃描
+                for (int i = 0; i < SAH_BINS - 1; ++i) {
+                    leftSum += bins[i].count;
+                    leftBox = leftBox.Union(bins[i].bounds);
+                    leftCount[i] = leftSum;
+                    leftArea[i] = leftBox.SurfaceArea();
+                }
+                // 從右掃描
+                for (int i = SAH_BINS - 2; i >= 0; --i) {
+                    rightSum += bins[i + 1].count;
+                    rightBox = rightBox.Union(bins[i + 1].bounds);
+                    rightCount[i] = rightSum;
+                    rightArea[i] = rightBox.SurfaceArea();
+                }
+
+                // 尋找此軸上的最小 SAH
+                for (int i = 0; i < SAH_BINS - 1; ++i) {
+                    if (leftCount[i] == 0 || rightCount[i] == 0) continue;
+
+                    float cost = leftCount[i] * leftArea[i] + rightCount[i] * rightArea[i];
                     if (cost < bestCost) {
                         bestCost = cost;
                         bestAxis = axis;
-                        bestSplit = i;
-                        bestLeftAABB = leftAABB;
-                        bestRightAABB = rightAABB;
+                        // 分割位置設為該桶的右邊界比例處
+                        bestSplitPos = boundsMin + (boundsMax - boundsMin) * (i + 1) / (float)SAH_BINS;
                     }
                 }
             }
 
-            // 若無法有效分割，則為葉節點
-            if (bestAxis == -1) {
-                node.start = start;
-                node.count = count;
-                nodes[currentIndex] = node;
+            // 計算不分割的代價 (作為葉子節點)
+            float leafCost = count * nodeAABB.SurfaceArea();
+
+            // 如果無法找到有效分割，或分割代價比直接做葉子還高，則終止
+            if (bestAxis == -1 || bestCost >= leafCost) {
+                nodes[currentIndex].start = start;
+                nodes[currentIndex].count = count;
+                nodes[currentIndex].left = -1;
+                nodes[currentIndex].right = -1;
                 return currentIndex;
             }
 
-            // 依最佳分割重排
-            std::vector<std::pair<float, int>> centers = centersPerAxis[bestAxis];
-
-            // in-place 重排
-            std::vector<glm::ivec4> newIndices(count);
-            std::vector<glm::vec4> newNormals(count);
-            std::vector<int> newMaterials(count);
-            std::vector<PackedTriangle> newPackedTris(count);
-            std::vector<Bounds::Bound3> newAABBs(count);
-            for (int i = 0; i < count; ++i) {
-                int idx = centers[i].second + start;
-                newIndices[i] = mesh.indices[idx];
-                newNormals[i] = mesh.faceNormals[idx];
-                newMaterials[i] = mesh.materialIndices[idx];
-                newPackedTris[i] = packedTris[idx];
-                newAABBs[i] = triangleAABBs[idx];
-            }
-            for (int i = 0; i < count; ++i) {
-                mesh.indices[start + i] = newIndices[i];
-                mesh.faceNormals[start + i] = newNormals[i];
-                mesh.materialIndices[start + i] = newMaterials[i];
-                packedTris[start + i] = newPackedTris[i];
-                triangleAABBs[start + i] = newAABBs[i];
+            // In-Place Partitioning
+            // 將中心點小於 splitPos 的放到左邊，大於的放到右邊
+            int mid = start;
+            for (int i = start; i < end; ++i) {
+                glm::vec3 center = triangleAABBs[i].Center();
+                if (center[bestAxis] < bestSplitPos) {
+                    swapPrimitives(i, mid);
+                    mid++;
+                }
             }
 
-            // 遞迴建立左右子節點
-            int mid = start + bestSplit;
-            node.left = buildNode(start, mid, depth - 1, bestLeftAABB);
-            node.right = buildNode(mid, end, depth - 1, bestRightAABB);
-            nodes[currentIndex] = node;
+            // 防止極端情況 (例如所有重心都在同一側，導致無限遞迴)
+            if (mid == start || mid == end) {
+                // 如果根據幾何中心分割失敗，強制對半分 (fallback)
+                mid = start + count / 2;
+                // 如果幾何分割失敗，直接設為葉節點
+                nodes[currentIndex].start = start;
+                nodes[currentIndex].count = count;
+                nodes[currentIndex].left = -1;
+                nodes[currentIndex].right = -1;
+                return currentIndex;
+            }
+
+            // 遞迴建構子節點
+            int leftChildIndex = buildNode(start, mid, depth - 1);
+            int rightChildIndex = buildNode(mid, end, depth - 1);
+
+            nodes[currentIndex].left = leftChildIndex;
+            nodes[currentIndex].right = rightChildIndex;
+            nodes[currentIndex].count = 0; // 內部節點 count 為 0
+
             return currentIndex;
-        };
+            };
 
-        buildNode(0, (int)mesh.indices.size(), MAX_DEPTH, AABB);
+        // 遞迴
+        buildNode(0, (int)mesh.indices.size(), MAX_DEPTH);
 
         return nodes;
     }
+
 
     std::vector<OBVHNode> buildOBVH(Mesh& mesh) {
         std::vector<OBVHNode> nodes;

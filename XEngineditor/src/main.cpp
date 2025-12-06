@@ -354,7 +354,7 @@ public:
 
 
 
-		if (ImGui::Begin("Sence"))
+		if (ImGui::Begin("Scene"))
 		{
 			if (ImGui::IsItemHovered() || ImGui::IsWindowHovered())
 			{
