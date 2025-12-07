@@ -3,7 +3,7 @@
 #include "glad/glad.h"
 #include "graphics/structs.hpp"
 #include "graphics/camera.hpp"
-
+#include "external/stb/stb_image.h"
 
 #include "external/glm/gtc/type_ptr.hpp"
 
@@ -222,6 +222,38 @@ namespace XEngine
 	{
 		glActiveTexture(GL_TEXTURE0 + textureUnit);
 		glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
+	}
+
+	uint32_t ComputeShader::bindHDRIsTexture(const char* path)
+	{
+		stbi_set_flip_vertically_on_load(true);
+		int width, height, nrComponents;
+		float* data = stbi_loadf(path, &width, &height, &nrComponents, 0);
+
+		uint32_t mHDRiTexture;
+
+		if (data) {
+			glCreateTextures(GL_TEXTURE_2D, 1, &mHDRiTexture);
+
+			// 使用 GL_RGB32F 或 GL_RGB16F 來儲存高動態範圍數據
+			glTextureStorage2D(mHDRiTexture, 1, GL_RGB32F, width, height);
+			glTextureSubImage2D(mHDRiTexture, 0, 0, 0, width, height, GL_RGB, GL_FLOAT, data);
+
+			// 設定環繞與過濾模式
+			glTextureParameteri(mHDRiTexture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // 防止邊緣縫隙
+			glTextureParameteri(mHDRiTexture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTextureParameteri(mHDRiTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTextureParameteri(mHDRiTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			stbi_image_free(data);
+			XENGINE_TRACE("HDR Texture loaded: {}", path);
+		}
+		else {
+			XENGINE_ERROR("Failed to load HDR image: {}", path);
+			mHDRiTexture = 0;
+		}
+
+		return mHDRiTexture;
 	}
 
 	void ComputeShader::createDebugSSBO(uint32_t binding)

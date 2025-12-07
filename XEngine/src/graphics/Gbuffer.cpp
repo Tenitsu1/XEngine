@@ -39,14 +39,14 @@ namespace XEngine::graphics
         glGenTextures(GBUFFER_NUM_TEXTURES, mTextures);
         glGenTextures(1, &mDepthTexture);
 
-        // 1. Position: 使用 32F 以確保光追時的世界座標重建精確
+        // 1. Position
         glBindTexture(GL_TEXTURE_2D, mTextures[GBUFFER_POSITION]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTextures[GBUFFER_POSITION], 0);
 
-        // 2. Normal: 16F 足夠
+        // 2. Normal
         glBindTexture(GL_TEXTURE_2D, mTextures[GBUFFER_NORMAL]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);

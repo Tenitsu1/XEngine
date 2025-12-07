@@ -67,8 +67,6 @@ namespace XEngine::BVH {
             if (count <= MAX_LEAF_TRIANGLES || depth <= 0) {
                 nodes[currentIndex].start = start;
                 nodes[currentIndex].count = count;
-                nodes[currentIndex].left = -1;
-                nodes[currentIndex].right = -1;
                 return currentIndex;
             }
 

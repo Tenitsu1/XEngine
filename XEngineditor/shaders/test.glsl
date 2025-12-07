@@ -23,7 +23,7 @@ struct Material {
     int baseColorTexture;
     int metallicRoughnessTexture;
     int normalTexture;
-    int type;
+    int emissiveTexture;
 };
 
 struct HitRecord {
@@ -34,7 +34,7 @@ struct HitRecord {
     vec3 shadingNormal;
     vec3 geoNormal;
     bool frontFace;
-
+    vec2 uv;
     float metallic;
     float roughness;
 };
@@ -75,7 +75,8 @@ layout(std430, binding = 15) buffer PackedTriBuffer            { PackedTriangle 
 // --- Uniform ---
 layout(binding = 10) uniform sampler2D gPosition;
 layout(binding = 11) uniform sampler2D gNormal;
-layout(binding = 20) uniform sampler2D u_textures[28]; 
+layout(binding = 12) uniform sampler2D u_envMap;
+layout(binding = 20) uniform sampler2DArray u_textures; 
 
 
 uniform vec2 u_resolution;
@@ -86,6 +87,8 @@ uniform bool useOBVH;
 uniform Camera camera;
 uniform bool cameraUpdated;
 uniform mat4 invViewProj;
+uniform bool useEnvMap;
+uniform float envIntensity;
 
 // --- const ---
 const int MAX_STACK_SIZE = 32;
@@ -93,6 +96,8 @@ const float EPSILON = 1e-20;
 const float PI = 3.14159265359;
 const float INF = 1.0 / 0.0;
 const int LIGHT = 1;
+const vec2 invAtan = vec2(0.1591, 0.3183); // 1/(2*PI), 1/PI
+
 
 // --- random number ---
 uint hash(uint x) {
@@ -169,26 +174,63 @@ vec2 barycentric(vec2 n0, vec2 n1, vec2 n2, float u, float v) {
     return n0 * (1.0 - u - v) + n1 * u + n2 * v;
 }
 
+vec3 sRGBToLinear(vec3 color) {
+    return pow(color, vec3(2.2));
+}
+
 vec3 getBaseColor(Material mat, vec2 uv) {
     vec3 color = mat.baseColorFactor.rgb;
     if (mat.baseColorTexture >= 0) {
-        color = texture(u_textures[min(mat.baseColorTexture, 27)], uv).rgb;
+        float layer = float(mat.baseColorTexture); 
+        // [修改] 使用 textureLod 強制讀取 Level 0
+        color = textureLod(u_textures, vec3(uv, layer), 0.0).rgb;
+
+        color *= sRGBToLinear(color);
     }
     return color;
 }
+
 
 vec2 getMetallicRoughness(Material mat, vec2 uv) {
     float m = mat.metallicFactor;
     float r = mat.roughnessFactor;
     
     if (mat.metallicRoughnessTexture >= 0) {
-        vec4 mrSample = texture(u_textures[min(mat.metallicRoughnessTexture, 27)], uv);
+        float layer = float(mat.metallicRoughnessTexture);
+        // [修改] 使用 textureLod
+        vec4 mrSample = textureLod(u_textures, vec3(uv, layer), 0.0);
         
         m *= mrSample.b; // Blue channel for Metallic
         r *= mrSample.g; // Green channel for Roughness
     }
     
     return vec2(m, r);
+}
+
+
+vec3 getEmission(Material mat, vec2 uv) {
+    vec3 emission = mat.emissionFactor.rgb;
+    
+    // 如果有自發光貼圖
+    if (mat.emissiveTexture >= 0) {
+        float layer = float(mat.emissiveTexture);
+        // 取樣並轉 Linear (假設貼圖是 sRGB 編碼)
+        // [修改] 使用 textureLod
+        vec3 texColor = textureLod(u_textures, vec3(uv, layer), 0.0).rgb;
+        emission *= sRGBToLinear(texColor);
+    }
+    
+    // 乘上強度 (emissionFactor.a 儲存了強度)
+    return emission * mat.emissionFactor.a;
+}
+
+vec3 GetEnvironmentColor(vec3 dir) {
+    vec3 d = normalize(dir);
+    vec2 uv = vec2(atan(d.z, d.x), asin(d.y)); 
+    uv *= invAtan;
+    uv += 0.5;
+    // [修改] textureLod
+    return textureLod(u_envMap, uv, 0.0).rgb; 
 }
 
 vec3 F_Schlick(float cosTheta, vec3 F0) {
@@ -391,12 +433,14 @@ bool hit_world(Ray ray, out HitRecord hit) {
     const vec2 uv1 = texCoords[index.y];
     const vec2 uv2 = texCoords[index.z];
     const vec2 hitUV = barycentric(uv0, uv1, uv2, u, v);
+
+    hit.uv = hitUV; // [新增] 將 UV 存入 HitRecord
     hit.color = getBaseColor(mat, hitUV);
 
     // Metallic && Roughness
     vec2 mr = getMetallicRoughness(mat, hitUV);
     hit.metallic = mr.x;
-    hit.roughness = mr.y;
+    hit.roughness = max(mr.y, 0.04); 
 
     return true;
 }
@@ -407,12 +451,20 @@ bool hit_world(Ray ray, out HitRecord hit) {
 vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
     vec3 throughput = vec3(1.0); 
     vec3 finalColor = vec3(0.0);
+    const vec3 WHITE = vec3(1.0, 1.0, 1.0);
 
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         if (length(throughput) < 1e-6) break;
 
         HitRecord hit;
-        if (!hit_world(ray, hit)) break;
+        if (!hit_world(ray, hit))
+        {
+           //          // // 背景色
+           //  float a = 0.5 * (ray.direction.y + 1.0);
+           //  vec3 sky = mix(WHITE, vec3(0.5, 0.7, 1.0), a);
+           //  finalColor += throughput * sky;
+            break;
+        }
 
         // gNormal (When Depth == 0)
         if (depth == 0) {
@@ -428,19 +480,24 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
         vec3 N = hit.shadingNormal;
 
         // Emission
-        vec3 emission = material.emissionFactor.rgb * material.emissionFactor.a;
-        if (length(emission) > 0.0) {
-            if (hit.frontFace) finalColor += throughput * emission;
 
-            if (material.type == LIGHT) break;
+        vec3 emission = getEmission(material, hit.uv);  // 可傳入 UV
+
+        // 2. 如果打到正面，就加上發光顏色
+        // 不再因為是光源就 Break，而是繼續進行下方的散射計算
+       
+        if (length(emission) > 0.0){
+            if (hit.frontFace) finalColor += throughput * emission;
         }
 
-        // If depth > 1 then attenuate throughput
+        // 3. 能量守恆與 Russian Roulette
         if (depth >= 2) {
             float p = max(throughput.r, max(throughput.g, throughput.b));
+            if (p < 0.0001) p = 0.0001; 
             if (RandomValue(state) > p) break;
             throughput /= p;
         }
+
 
         // Material (PBR / Glass)
         if (material.transmissionFactor > 0.0) {
@@ -529,6 +586,13 @@ void main()
     for (int i = 0; i < SAMPLES_PER_PIXEL; i++) {
         Ray ray = createRay(camera.position, dir);
         vec3 rayColor = RayTrace(ray, state, pixel);
+
+        float maxRadiance = 50.0; 
+        float lum = dot(rayColor, vec3(1));
+        if (lum > maxRadiance) {
+            rayColor *= maxRadiance / lum;
+        }
+
         currentFrameColor += rayColor;
     }
     currentFrameColor /= float(SAMPLES_PER_PIXEL);

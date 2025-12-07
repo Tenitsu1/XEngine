@@ -64,9 +64,13 @@ private:
 	GLuint mMaterialIndicesSSBO = 0;
 	GLuint mMatToTexMapSSBO = 0;
 	GLuint mPackedTriSSBO = 0;
+	GLuint EnvTextureSSBO = 0;
 
 	GLuint mScreenTexture = 0;
 	int mCurrentFrame = 0;
+
+	bool useEnvMap = true;
+	float envIntensity = 1.0f;
 
 	uint64_t nowTime = 0;
 	float deltaTime = 0;
@@ -96,8 +100,10 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		/*mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\japanese_classroom\\sceneWithLight.gltf");*/
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\japanese_classroom\\sceneWithLight.gltf");
+		// mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\japanese_classroom\\sceneWithLight.gltf");
+		// mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\old_church\\scene.gltf");
+		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_Transmission.gltf");
+		// mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_girl.gltf");
 		auto& Mesh = mModel->getMesh();
 
 		std::vector<Material> materials = mModel->getMaterials();
@@ -105,7 +111,7 @@ public:
 
 		mGBuffer = std::make_shared<graphics::GBuffer>();
 		if (!mGBuffer->initialize(width, height)) XENGINE_ERROR("Failed to initialize GBuffer!");
-		mGBufferShader = std::make_shared<Shader>("shaders/gbuffer.vert", "shaders/gbuffer.frag");
+		mGBufferShader = std::make_shared<Shader>("shaders\\gbuffer.vert", "shaders\\gbuffer.frag");
 
 		mShader = std::make_shared<Shader>("shaders\\default.vert", "shaders\\default.frag");
 		mShader->createTexture(width, height);
@@ -124,9 +130,7 @@ public:
 		mShader->bind(quadVertices, 4, 4);
 
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\test.glsl", width, height);
-		// mComputeShader->chackBindLimit();
 		mScreenTexture = mComputeShader->createTexture(width, height);
-
 		uint64_t buildTimeStart = 0;
 		Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
 		XENGINE_TRACE("Starting to build BVH...");
@@ -136,15 +140,20 @@ public:
 		auto leafNode = BVH::getLeafNode(bvhNodes);
 
 
+		// SSBO setting
 		triangleCount = (int)Mesh.indices.size();
 		if (triangleCount > 0)
 		{
+			// OBVH       (Binding 2)
 			mComputeShader->createSSBO(mOBVHSSBO, (uint32_t)bvhNodes.size() * sizeof(BVH::BVHNode), bvhNodes.data(), 2);
+			// Vertex     (Binding 3)
 			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.data(), 3);
+			// Indices    (Binding 4)
 			mComputeShader->createSSBO(mIndicesSSBO, (uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.data(), 4);
+			// FaceNormal (Binding 5)
 			mComputeShader->createSSBO(mFaceNormalsSSBO, (uint32_t)Mesh.faceNormals.size() * sizeof(glm::vec4), Mesh.faceNormals.data(), 5);
-			mComputeShader->createSSBO(mNormalsSSBO, (uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.data(), 9);
 
+			// TexCoords  (Binding 6)
 			if (!Mesh.texCoords.empty())
 			{
 				mComputeShader->createSSBO(mTexCoordsSSBO, (uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.data(), 6);
@@ -169,14 +178,16 @@ public:
 					(uint32_t)materials.size() * sizeof(Material),
 					materials.data(), 8);
 			}
+			// Normal     (Binding 9)
+			mComputeShader->createSSBO(mNormalsSSBO, (uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.data(), 9);
 
-			const auto& textures = mModel->getTextures();
-			int limit = std::min((int)textures.size(), 28);
-			for (int i = 0; i < limit; ++i) {
-				// 假設 Compute Shader 裡 u_textures 改成了 binding = 20
-				mComputeShader->bindTexture(textures[i], 20 + i);
+			// HDRIs      (Binding 10)
+			EnvTextureSSBO = mComputeShader->bindHDRIsTexture("models\\rocky_ridge_puresky_4k.hdr");
+			if (EnvTextureSSBO != 0) {
+				mComputeShader->bindTexture(EnvTextureSSBO, 12);
 			}
 
+			// PackedTriangle Data SSBO (Binding 15)
 			if (!packedTris.empty()) {
 				mComputeShader->createSSBO(mPackedTriSSBO,
 					(uint32_t)packedTris.size() * sizeof(PackedTriangle),
@@ -184,6 +195,10 @@ public:
 
 				XENGINE_TRACE("PackedTriangle SSBO created, size: {}", packedTris.size());
 			}
+
+			// Texture SSBO (Binding 20 ~ 48)
+			const auto& textures = mModel->getTextureArrayID();
+			mComputeShader->bindTextureArray(textures, 20);
 
 			{
 				XENGINE_TRACE("Vertices SSBO created, size: {}, count: {}",
@@ -226,7 +241,9 @@ public:
 
 
 
-		camera = Camera(glm::vec3(8.f, 4.0f, 0.2f));
+		// Camera setting
+		/*camera = Camera(glm::vec3(8.f, 4.0f, 0.2f));*/
+		camera = Camera(glm::vec3(0.f, 2.0f, -5.f));
 		camera.Yaw = -180.0f;
 		camera.Pitch = 0.0f;
 		camera.MovementSpeed = 5.0f; 
@@ -306,6 +323,10 @@ public:
 			mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
 			mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
 			mComputeShader->setUniformBool("useOBVH", useOBVH);
+
+			mComputeShader->setUniformInt("u_envMap", 12);
+			mComputeShader->setUniformBool("useEnvMap", useEnvMap && EnvTextureSSBO != 0);
+			mComputeShader->setUniformFloat1("envIntensity", envIntensity);
  
 
 			mComputeShader->DispatchCompute(mScreenTexture);

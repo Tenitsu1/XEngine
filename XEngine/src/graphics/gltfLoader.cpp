@@ -61,11 +61,11 @@ namespace XEngine::graphics
 		XENGINE_TRACE("Loaded gltf : {}", filename);
 
 		loadTextures(model);
-		//createTextureArray(model);
+		
 		extractMaterials(model);
 		//vaoAndEbos = bindModel(model);
 		setupRenderPrimitives(model, generateVBOs(model));
-
+		createTextureArray(model);
 		extractMesh(model);
 		buildPackedTriangles();
 	}
@@ -212,7 +212,14 @@ namespace XEngine::graphics
 			GLenum internalFormat = (format == GL_RGBA) ? GL_SRGB_ALPHA : GL_SRGB;
 			GLenum type = (image.bits == 16) ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE;
 
+			// 防止 RGB 格式且寬度非 4 倍數的圖片讀取錯誤
+			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
 			glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, image.width, image.height, 0, format, type, &image.image.at(0));
+
+			// 恢復預設值
+			glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
 			glGenerateMipmap(GL_TEXTURE_2D);
 
 			// Sampler settings
@@ -601,54 +608,107 @@ namespace XEngine::graphics
 		for (size_t i = 0; i < matCount; ++i)
 		{
 			const tinygltf::Material& gltfMat = model.materials[i];
+			mat = Material();
 
-			// 1. Base Color
-			if (gltfMat.pbrMetallicRoughness.baseColorFactor.size() == 4) {
-				mat.baseColorFactor = glm::make_vec4(gltfMat.pbrMetallicRoughness.baseColorFactor.data());
+
+			// Base Color && Metallic && Roughness
+
+			// 檢查是否有 Specular Glossiness 擴展
+			auto specGlossIt = gltfMat.extensions.find("KHR_materials_pbrSpecularGlossiness");
+			bool hasSpecGloss = (specGlossIt != gltfMat.extensions.end());
+
+			if (hasSpecGloss) {
+				// ==================================================
+				// Case A: 使用 KHR_materials_pbrSpecularGlossiness
+				// ==================================================
+				const auto& sgExt = specGlossIt->second;
+
+				// 1. Diffuse -> 映射到 Base Color
+				if (sgExt.Has("diffuseTexture")) {
+					const auto& tex = sgExt.Get("diffuseTexture");
+					if (tex.Has("index")) mat.baseColorTexture = tex.Get("index").GetNumberAsInt();
+				}
+
+				if (sgExt.Has("diffuseFactor")) {
+					const auto& factor = sgExt.Get("diffuseFactor");
+					if (factor.IsArray() && factor.ArrayLen() == 4) {
+						mat.baseColorFactor = glm::vec4(
+							(float)factor.Get(0).GetNumberAsDouble(),
+							(float)factor.Get(1).GetNumberAsDouble(),
+							(float)factor.Get(2).GetNumberAsDouble(),
+							(float)factor.Get(3).GetNumberAsDouble()
+						);
+					}
+				}
+
+				// 2. SpecularGlossiness -> 映射到 MetallicRoughness
+				// 通常 SpecularGlossiness 紋理的 RGB 是 Specular，A 是 Glossiness
+				// 而 MetallicRoughness 紋理的 B 是 Metallic，G 是 Roughness
+				if (sgExt.Has("specularGlossinessTexture")) {
+					const auto& tex = sgExt.Get("specularGlossinessTexture");
+					if (tex.Has("index")) mat.metallicRoughnessTexture = tex.Get("index").GetNumberAsInt();
+				}
+
+				// Glossiness = 1.0 - Roughness
+				if (sgExt.Has("glossinessFactor")) {
+					float gloss = (float)sgExt.Get("glossinessFactor").GetNumberAsDouble();
+					mat.roughnessFactor = 1.0f - gloss;
+				}
+				// SpecularFactor 暫時無法直接對應到 Metallic，保持預設
 			}
-			mat.baseColorTexture = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
+			else {
+				// ==================================================
+				// Case B: 使用標準 pbrMetallicRoughness 
+				// ==================================================
+				if (gltfMat.pbrMetallicRoughness.baseColorFactor.size() == 4) {
+					mat.baseColorFactor = glm::make_vec4(gltfMat.pbrMetallicRoughness.baseColorFactor.data());
+				}
+				mat.baseColorTexture = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
 
-			// 2. Metallic & Roughness
-			mat.metallicFactor = (float)gltfMat.pbrMetallicRoughness.metallicFactor;
-			mat.roughnessFactor = (float)gltfMat.pbrMetallicRoughness.roughnessFactor;
-			mat.metallicRoughnessTexture = gltfMat.pbrMetallicRoughness.metallicRoughnessTexture.index;
+				mat.metallicFactor = (float)gltfMat.pbrMetallicRoughness.metallicFactor;
+				mat.roughnessFactor = (float)gltfMat.pbrMetallicRoughness.roughnessFactor;
+				mat.metallicRoughnessTexture = gltfMat.pbrMetallicRoughness.metallicRoughnessTexture.index;
+			}
 
-			// 3. Normal
+			// Normal Texture
 			mat.normalTexture = gltfMat.normalTexture.index;
 
-			// 4. Emissive (自發光)
-			auto emissiveStrength = gltfMat.extensions.find("KHR_materials_emissive_strength");
-			if (gltfMat.emissiveFactor.size() == 3) {
-				if (emissiveStrength != gltfMat.extensions.end() && emissiveStrength->second.IsObject()) {
-					const auto& val = emissiveStrength->second;
-					if (val.Has("emissiveStrength")) {
-						/*mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), (float)val.Get("emissiveStrength").GetNumberAsDouble());*/
-						mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), 10);
-					}
-				}				
+			// Emissive (自發光)
+			mat.emissiveTexture = gltfMat.emissiveTexture.index;
+
+			float strength = 1.0f;
+			auto emissiveStrengthExt = gltfMat.extensions.find("KHR_materials_emissive_strength");
+			if (emissiveStrengthExt != gltfMat.extensions.end() && emissiveStrengthExt->second.IsObject()) {
+				const auto& val = emissiveStrengthExt->second;
+				if (val.Has("emissiveStrength")) {
+					strength = (float)val.Get("emissiveStrength").GetNumberAsDouble();
+				}
 			}
 
-			// 5. Extensions (Transmission & IOR)
+			if (gltfMat.emissiveFactor.size() == 3) {
+				mat.emissionFactor = glm::vec4(glm::make_vec3(gltfMat.emissiveFactor.data()), strength);
+			}
+			else {
+				mat.emissionFactor = glm::vec4(0.0f);
+			}
+
+			// Extensions (Transmission & IOR)
 			auto transmissionIt = gltfMat.extensions.find("KHR_materials_transmission");
 			if (transmissionIt != gltfMat.extensions.end() && transmissionIt->second.IsObject()) {
 				const auto& val = transmissionIt->second;
-				if (val.Has("transmissionFactor")) {
-					mat.transmissionFactor = (float)val.Get("transmissionFactor").GetNumberAsDouble();
-				}
+				if (val.Has("transmissionFactor")) mat.transmissionFactor = (float)val.Get("transmissionFactor").GetNumberAsDouble();
 			}
 
 			auto iorIt = gltfMat.extensions.find("KHR_materials_ior");
 			if (iorIt != gltfMat.extensions.end() && iorIt->second.IsObject()) {
 				const auto& val = iorIt->second;
-				if (val.Has("ior")) {
-					mat.ior = (float)val.Get("ior").GetNumberAsDouble();
-				}
+				if (val.Has("ior")) mat.ior = (float)val.Get("ior").GetNumberAsDouble();
 			}
 
 			mMaterials.push_back(mat);
 		}
 
-		XENGINE_TRACE("Extracted {} materials (AoS format)", matCount);
+		XENGINE_TRACE("Extracted {} materials.", matCount);
 	}
 
 	void GLTFStaticMesh::drawWithShader(std::shared_ptr<XEngine::Shader> shader, tinygltf::Model& model) {
@@ -741,21 +801,46 @@ namespace XEngine::graphics
 				}
 
 				// Emissive
-				if (mat.emissiveFactor.size() == 3) {
-					emission = glm::vec4(glm::make_vec3(mat.emissiveFactor.data()), 1.0f);
-				}
+				// 1. 設定預設強度 (根據 glTF 標準，若無擴展則為 1.0)
+				float emissionStrength = 1.0f;
+
+				// 2. 檢查是否有 KHR_materials_emissive_strength 擴展來覆寫強度
 				if (mat.extensions.count("KHR_materials_emissive_strength")) {
 					const auto& ext = mat.extensions.at("KHR_materials_emissive_strength");
 					if (ext.Has("emissiveStrength")) {
-						float strength = (float)ext.Get("emissiveStrength").GetNumberAsDouble();
-						emission *= strength; 
+						emissionStrength = (float)ext.Get("emissiveStrength").GetNumberAsDouble();
 					}
 				}
+
+				// 3. 讀取標準的 emissiveFactor (RGB)
+				// 這對應 JSON 中的 "emissiveFactor": [1.0, 1.0, 1.0]
+				if (mat.emissiveFactor.size() == 3) {
+					glm::vec3 factor = glm::make_vec3(mat.emissiveFactor.data());
+
+					// 將 RGB (Color) 與 A (Strength) 組合傳給 Shader
+					// 這樣 Shader 就可以用 .rgb * .a 來算出最終亮度
+					emission = glm::vec4(factor, emissionStrength);
+				}
+
+				// 4. 讀取標準的 emissiveTexture
+				// 這對應 JSON 中的 "emissiveTexture": { "index": 1 }
 				if (mat.emissiveTexture.index >= 0) {
 					glActiveTexture(GL_TEXTURE3);
 					glBindTexture(GL_TEXTURE_2D, mTextures[mat.emissiveTexture.index]);
 					useEmissiveMap = true;
 				}
+
+
+				// Upload Uniforms
+				shader->setUniformFloat4("material.baseColorFactor", baseColor);
+				shader->setUniformFloat4("material.emissionFactor", emission);
+				shader->setUniformFloat1("material.metallicFactor", metallic);
+				shader->setUniformFloat1("material.roughnessFactor", roughness);
+
+				shader->setUniformBool("material.useBaseColorMap", useBaseColorMap);
+				shader->setUniformBool("material.useMetallicRoughnessMap", useMetallicRoughnessMap);
+				shader->setUniformBool("material.useNormalMap", useNormalMap);
+				shader->setUniformBool("material.useEmissiveMap", useEmissiveMap);
 
 				// --- Draw Call ---
 				glBindVertexArray(renderPrim.vao);
@@ -764,21 +849,9 @@ namespace XEngine::graphics
 					renderPrim.count,
 					renderPrim.type,
 					BUFFER_OFFSET(renderPrim.byteOffset));
+				glBindVertexArray(0);
 			}
-		}
-
-		// Upload Uniforms
-		shader->setUniformFloat4("material.baseColorFactor", baseColor);
-		shader->setUniformFloat4("material.emissionFactor", emission);
-		shader->setUniformFloat1("material.metallicFactor", metallic);
-		shader->setUniformFloat1("material.roughnessFactor", roughness);
-		
-		shader->setUniformBool("material.useBaseColorMap", useBaseColorMap);
-		shader->setUniformBool("material.useMetallicRoughnessMap", useMetallicRoughnessMap);
-		shader->setUniformBool("material.useNormalMap", useNormalMap);
-		shader->setUniformBool("material.useEmissiveMap", useEmissiveMap);
-
-		glBindVertexArray(0);
+		}	
 	}
 
 	// 這是優化版本的 processMesh，請放在初始化階段呼叫
@@ -922,7 +995,14 @@ namespace XEngine::graphics
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+			// 防止 RGB 格式且寬度非 4 倍數的圖片讀取錯誤
+			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
 			glTexImage2D(GL_TEXTURE_2D, 0, format, img.width, img.height, 0, format, GL_UNSIGNED_BYTE, img.image.data());
+
+			// 恢復預設值
+			glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
 			glBindTexture(GL_TEXTURE_2D, 0);
 
 	

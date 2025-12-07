@@ -59,6 +59,7 @@ namespace XEngine
 			void bindImageTexture(uint32_t textureID, int binding);
 			void bindTexture(uint32_t textureID, int textureUnit);
 			void bindTextureArray(uint32_t textureID, int textureUnit);
+			uint32_t bindHDRIsTexture(const char* path);
 
 			void createDebugSSBO(uint32_t binding);
 
@@ -80,6 +81,7 @@ namespace XEngine
 			uint32_t mProgramId;
 			uint32_t mWidth;
 			uint32_t mHeight;
+
 	};
 }
 

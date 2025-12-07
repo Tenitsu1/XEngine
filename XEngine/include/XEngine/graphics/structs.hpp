@@ -18,18 +18,37 @@ struct Mesh
 
 struct Material
 {
+	//  Material的參數定義參考於gltf官網以及blender內建參數
+
+	//  --- 參考影片 ---
+	//	Thanks for ZACK 3D
+	//  (15分鐘學會PBR材質－觀念篇) https://www.youtube.com/watch?v=7viU875f2rw
+	//  ---------------
+
+	//  顏色一般來說有多種變體名稱，分別為
+	//  1. Color
+	//  2. BaseColor
+	//  3. Diffuse
+	//  4. Albedo(較為少見，通常會獨立出來作為反射紋理或者是由其他參數決定)
 	glm::vec4 baseColorFactor;      // 基礎顏色因子　　　　Offset 0
+
+	//  emission可能作為PBR底下的參數
+	//  也有可能作為KHR_materials_emissive_strength的獨立參數
+	//  其中RGB為發光顏色，A設定為發光強度
 	glm::vec4 emissionFactor;       // 發光顏色或強度　　　Offset 16 
 
 	float metallicFactor;           // 金屬度因子　　　　　Offset 32
+
+	//  roughness(粗糙度)為常見的表達形式
+	//  另一種變體為Glossiness(光澤度)，則為粗糙度的反向
 	float roughnessFactor;          // 粗糙度因子　　　　　Offset 36
 	float transmissionFactor;       // 透射率　　　　　　　Offset 40
 	float ior;                      // 折射率　　　　　　　Offset 44
 
 	int baseColorTexture;           // 基礎顏色紋理　　　　Offset 48
 	int metallicRoughnessTexture;   // 金屬度與粗糙度紋理　Offset 52
-	int normalTexture;              // 法向量貼圖　　　　　Offset 56
-	int type;                       // 是否為光源　　　　　Offset 60 (0: PBR, 1: Light)
+	int normalTexture;              // 法向量紋理　　　　　Offset 56
+	int emissiveTexture;            // 自發光紋理　　　　　Offset 60 (0: PBR, 1: Light)
 
 
 
@@ -44,7 +63,7 @@ struct Material
 		baseColorTexture = -1;
 		metallicRoughnessTexture = -1;
 		normalTexture = -1;
-		type = 0;
+		emissiveTexture = -1;
 	}
 
 };
