@@ -303,4 +303,8 @@ namespace XEngine
 		glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombinedTexUnits);
 		XENGINE_TRACE("Max Combined Texture Units: {}", maxCombinedTexUnits);
 	}
+	void ComputeShader::clearTexture(unsigned int textureID, int width, int height)
+	{
+		glClearTexImage(textureID, 0, GL_RGBA, GL_FLOAT, NULL);
+	}
 }

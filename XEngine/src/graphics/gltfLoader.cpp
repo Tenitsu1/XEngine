@@ -64,7 +64,8 @@ namespace XEngine::graphics
 		
 		extractMaterials(model);
 		//vaoAndEbos = bindModel(model);
-		setupRenderPrimitives(model, generateVBOs(model));
+		mBufferViewVBOs = generateVBOs(model);
+		setupRenderPrimitives(model, mBufferViewVBOs);
 		createTextureArray(model);
 		extractMesh(model);
 		buildPackedTriangles();
@@ -74,6 +75,7 @@ namespace XEngine::graphics
 	{
 		// delete Global VAO
 		glDeleteVertexArrays(1, &vaoAndEbos.first);
+		vaoAndEbos.first = 0;
 
 		// delete VAOs
 		for (auto const& [key, val] : vaoAndEbos.second)
@@ -81,6 +83,11 @@ namespace XEngine::graphics
 			glDeleteBuffers(1, &val);
 		}
 		vaoAndEbos.second.clear(); 
+
+		for (auto const& [key, vboID] : mBufferViewVBOs) {
+			glDeleteBuffers(1, &vboID);
+		}
+		mBufferViewVBOs.clear();
 
 		// delete all Per-Primitive VAOs with mRenderCache
 		for (auto& [meshIndex, primitives] : mRenderCache) {
@@ -95,6 +102,12 @@ namespace XEngine::graphics
 			glDeleteTextures((GLsizei)mTextures.size(), mTextures.data());
 			mTextures.clear();
 		}
+		if (mTextureArrayID != 0) {
+			glDeleteTextures(1, &mTextureArrayID);
+			mTextureArrayID = 0;
+		}
+
+
 	}
 
 

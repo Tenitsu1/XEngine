@@ -67,6 +67,8 @@ namespace XEngine
 
 			void chackBindLimit();
 
+			void clearTexture(unsigned int textureID, int width, int height);
+
 		private:
 			uint32_t mDebugSSBO = 0; // 除錯 SSBO 的 ID
 			uint32_t mDebugSSBOSize = 0; // 儲存 SSBO 的大小

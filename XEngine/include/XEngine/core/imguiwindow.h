@@ -24,6 +24,8 @@ namespace XEngine::core
 
 		void beginRender();
 		void endRender();
+
+		void setDarkTheme();
 	};
 
 }

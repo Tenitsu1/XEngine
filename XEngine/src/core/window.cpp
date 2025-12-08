@@ -72,6 +72,7 @@ namespace XEngine::core
 
 		//SDL_SetWindowRelativeMouseMode(mWindow, true);
 		mImguiwindow.create(props.imguiProps);
+		mImguiwindow.setDarkTheme();
 		return true;
 
 	}

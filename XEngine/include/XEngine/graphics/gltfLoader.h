@@ -92,6 +92,7 @@ namespace XEngine::graphics
 		std::pair<GLuint, std::map<int, GLuint>> vaoAndEbos;
 		std::map<int, GLuint> mVBOs;
 		std::vector<GLuint> mTextures;
+		std::map<int, GLuint> mBufferViewVBOs;
 
 		std::map<int, std::vector<RenderPrimitive>> mRenderCache;
 

@@ -551,7 +551,7 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
                 if (metallic >= 1.0) break; 
                 ray.direction = cosine_weighted_direction(N, state);
                 throughput *= hit.color;
-                throughput *= max(dot(N, ray.direction), 0.0);  // lambertian cosine term
+                // throughput *= max(dot(N, ray.direction), 0.0);  // lambertian cosine term
                 throughput /= (1.0 - specularProb); // balance energy
             }
         }

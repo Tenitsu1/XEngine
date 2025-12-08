@@ -11,6 +11,7 @@
 #include "XEngine/graphics/camera.hpp"
 #include "XEngine/graphics/cameraController.hpp"
 #include "XEngine/graphics/Gbuffer.h"
+#include "XEngine/graphics/scene.hpp" 
 
 #include "XEngine/input/mouse.h"
 #include "XEngine/input/keyboard.h"
@@ -18,6 +19,7 @@
 #include "XEngine/accelerators/bvh.h"
 
 #include "external/imgui/imgui.h"
+#include "external/imgui_filebrowser/imfilebrowser.h"
 #include "external/glm/glm.hpp"
 #include "external/glm/gtc/matrix_transform.hpp"
 #include "external/tinygltf/tiny_gltf.h"
@@ -27,18 +29,17 @@
 
 using namespace XEngine;
 
+
 class Editor : public XEngine::App
 {
 
 private:
 
+	Scene mScene;
+
 	// Shader
 	std::shared_ptr<ComputeShader> mComputeShader;
 	std::shared_ptr<Shader> mShader;
-
-	// Model
-	tinygltf::Model mtinyModel;
-	std::shared_ptr<graphics::GLTFStaticMesh> mModel;
 
 	// Gbuffer
 	std::shared_ptr<graphics::GBuffer> mGBuffer;
@@ -47,40 +48,24 @@ private:
 	// Camera && Controller
 	Camera camera;
 	std::unique_ptr<CameraController> mCameraController;
-	float xkeyOffset = 0.f;
-	float ykeyOffset = 0.f;
-	float zkeyOffset = 5.f;
 	bool cameraUpdated = false;
 	bool GuiCameraChanged = false;
+	uint64_t nowTime = 0;
+	float deltaTime = 0;
 
-	// SSBO
-	GLuint mVerticesSSBO = 0; // vertex  SSBO-ID
-	GLuint mIndicesSSBO = 0;  // indices SSBO-ID
-	GLuint mNormalsSSBO = 0;  // normal  SSBO-ID
-	GLuint mOBVHSSBO = 0;     // OBVH    SSBO-ID
-	GLuint mMaterialDataSSBO = 0;
-	GLuint mFaceNormalsSSBO = 0;
-	GLuint mTexCoordsSSBO = 0;
-	GLuint mMaterialIndicesSSBO = 0;
-	GLuint mMatToTexMapSSBO = 0;
-	GLuint mPackedTriSSBO = 0;
-	GLuint EnvTextureSSBO = 0;
-
-	GLuint mScreenTexture = 0;
+	// setting
+	bool useOBVH = true;
+	int samples_per_pixel = 1;
+	int max_depth = 5;
 	int mCurrentFrame = 0;
-
 	bool useEnvMap = true;
 	float envIntensity = 1.0f;
 
-	uint64_t nowTime = 0;
-	float deltaTime = 0;
-	int triangleCount = 0; 
+	GLuint mScreenTexture = 0;
 
-	int samples_per_pixel = 1;
-	int max_depth = 5;
-
-	float lastX = 640, lastY = 450;
-	bool useOBVH = true;
+	// File Browser State
+	ImGui::FileBrowser mFileDialog;
+	std::string defaultScenePath = "models\\cornell_box\\CornellBox_Transmission.gltf";
 
 public:
 
@@ -100,15 +85,11 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		// mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\japanese_classroom\\sceneWithLight.gltf");
-		// mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\old_church\\scene.gltf");
-		mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_Transmission.gltf");
-		// mModel = std::make_shared<graphics::GLTFStaticMesh>(mtinyModel, "models\\cornell_box\\CornellBox_girl.gltf");
-		auto& Mesh = mModel->getMesh();
-
-		std::vector<Material> materials = mModel->getMaterials();
-		auto& packedTris = mModel->mPackedTriangles;
-
+		if (mScene.load(defaultScenePath)) {
+			mCurrentFrame = 0;
+			cameraUpdated = true;
+			mComputeShader->clearTexture(mScreenTexture, width, height);
+		}
 		mGBuffer = std::make_shared<graphics::GBuffer>();
 		if (!mGBuffer->initialize(width, height)) XENGINE_ERROR("Failed to initialize GBuffer!");
 		mGBufferShader = std::make_shared<Shader>("shaders\\gbuffer.vert", "shaders\\gbuffer.frag");
@@ -131,115 +112,6 @@ public:
 
 		mComputeShader = std::make_shared<ComputeShader>("shaders\\test.glsl", width, height);
 		mScreenTexture = mComputeShader->createTexture(width, height);
-		uint64_t buildTimeStart = 0;
-		Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
-		XENGINE_TRACE("Starting to build BVH...");
-		auto bvhNodes = BVH::buildBVH(Mesh, packedTris);
-		float buildTime = Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
-		XENGINE_TRACE("BVH Build Time: {:.4f} seconds", buildTime);
-		auto leafNode = BVH::getLeafNode(bvhNodes);
-
-
-		// SSBO setting
-		triangleCount = (int)Mesh.indices.size();
-		if (triangleCount > 0)
-		{
-			// OBVH       (Binding 2)
-			mComputeShader->createSSBO(mOBVHSSBO, (uint32_t)bvhNodes.size() * sizeof(BVH::BVHNode), bvhNodes.data(), 2);
-			// Vertex     (Binding 3)
-			mComputeShader->createSSBO(mVerticesSSBO, (uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.data(), 3);
-			// Indices    (Binding 4)
-			mComputeShader->createSSBO(mIndicesSSBO, (uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.data(), 4);
-			// FaceNormal (Binding 5)
-			mComputeShader->createSSBO(mFaceNormalsSSBO, (uint32_t)Mesh.faceNormals.size() * sizeof(glm::vec4), Mesh.faceNormals.data(), 5);
-
-			// TexCoords  (Binding 6)
-			if (!Mesh.texCoords.empty())
-			{
-				mComputeShader->createSSBO(mTexCoordsSSBO, (uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.data(), 6);
-			}
-			else
-			{
-				XENGINE_WARN("Model has no texture coordinates!");
-			}
-
-			// Material Indices (Binding 7)
-			if (!Mesh.materialIndices.empty())
-			{
-				mComputeShader->createSSBO(mMaterialIndicesSSBO,
-					(uint32_t)Mesh.materialIndices.size() * sizeof(int),
-					Mesh.materialIndices.data(), 7);
-			}
-
-			// Material Data SSBO (Binding 8)
-			if (!materials.empty())
-			{
-				mComputeShader->createSSBO(mMaterialDataSSBO,
-					(uint32_t)materials.size() * sizeof(Material),
-					materials.data(), 8);
-			}
-			// Normal     (Binding 9)
-			mComputeShader->createSSBO(mNormalsSSBO, (uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.data(), 9);
-
-			// HDRIs      (Binding 10)
-			EnvTextureSSBO = mComputeShader->bindHDRIsTexture("models\\rocky_ridge_puresky_4k.hdr");
-			if (EnvTextureSSBO != 0) {
-				mComputeShader->bindTexture(EnvTextureSSBO, 12);
-			}
-
-			// PackedTriangle Data SSBO (Binding 15)
-			if (!packedTris.empty()) {
-				mComputeShader->createSSBO(mPackedTriSSBO,
-					(uint32_t)packedTris.size() * sizeof(PackedTriangle),
-					packedTris.data(), 15);
-
-				XENGINE_TRACE("PackedTriangle SSBO created, size: {}", packedTris.size());
-			}
-
-			// Texture SSBO (Binding 20 ~ 48)
-			const auto& textures = mModel->getTextureArrayID();
-			mComputeShader->bindTextureArray(textures, 20);
-
-			{
-				XENGINE_TRACE("Vertices SSBO created, size: {}, count: {}",
-					(uint32_t)Mesh.vertices.size() * sizeof(glm::vec4), Mesh.vertices.size());
-				XENGINE_TRACE("Indices SSBO created, size: {}, count: {}",
-					(uint32_t)Mesh.indices.size() * sizeof(glm::ivec4), Mesh.indices.size());
-				XENGINE_TRACE("Normals SSBO created, size: {}, count: {}",
-					(uint32_t)Mesh.normals.size() * sizeof(glm::vec4), Mesh.normals.size());
-				XENGINE_TRACE("FaceNormals SSBO created, size: {}, count: {}",
-					(uint32_t)Mesh.faceNormals.size() * sizeof(glm::vec4), Mesh.faceNormals.size());
-				XENGINE_TRACE("TexCoords SSBO created, size: {}, count: {}",
-					(uint32_t)Mesh.texCoords.size() * sizeof(glm::vec2), Mesh.texCoords.size());
-				XENGINE_TRACE("MaterialIndices SSBO created, size: {}, count: {}",
-					(uint32_t)Mesh.materialIndices.size() * sizeof(int), Mesh.materialIndices.size());
-				XENGINE_TRACE("MaterialData SSBO created, size: {}, count: {}",
-					(uint32_t)materials.size() * sizeof(Material), materials.size());
-				XENGINE_TRACE("BVH Nodes SSBO created, size: {}, count: {}",
-					(uint32_t)bvhNodes.size() * sizeof(BVH::BVHNode), bvhNodes.size());
-				XENGINE_TRACE("{} Leafs (min, median, max, mode, avg)", leafNode.count);
-				XENGINE_TRACE("depth    = ({}, {:.1f}, {}, {}, {:.2f})",
-					leafNode.depth.minValue, leafNode.depth.medianValue, leafNode.depth.maxValue, leafNode.depth.modeValue, leafNode.depth.averageValue);
-				XENGINE_TRACE("triangle = ({}, {:.1f}, {}, {}, {:.2f})",
-					leafNode.triangleCount.minValue, leafNode.triangleCount.medianValue, leafNode.triangleCount.maxValue, leafNode.triangleCount.modeValue, leafNode.triangleCount.averageValue);
-			}
-		}
-
-		// --- 印出包圍盒日誌 ---
-		glm::vec3 boundsMin = mModel->getBoundsMin();
-		glm::vec3 boundsMax = mModel->getBoundsMax();
-		glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
-		glm::vec3 size = boundsMax - boundsMin;
-
-		XENGINE_TRACE("=========================================");
-		XENGINE_TRACE("Model Bounding Box Info:");
-		XENGINE_TRACE("  Min: ({:.2f}, {:.2f}, {:.2f})", boundsMin.x, boundsMin.y, boundsMin.z);
-		XENGINE_TRACE("  Max: ({:.2f}, {:.2f}, {:.2f})", boundsMax.x, boundsMax.y, boundsMax.z);
-		XENGINE_TRACE("  Center: ({:.2f}, {:.2f}, {:.2f})", center.x, center.y, center.z);
-		XENGINE_TRACE("  Size: ({:.2f}, {:.2f}, {:.2f})", size.x, size.y, size.z);
-		XENGINE_TRACE("=========================================");
-
-
 
 		// Camera setting
 		/*camera = Camera(glm::vec3(8.f, 4.0f, 0.2f));*/
@@ -252,10 +124,14 @@ public:
 		mCameraController = std::make_unique<CameraController>(camera);
 		mCameraController->SetSpeed(10.0f);
 
+		mFileDialog.SetTitle("Open Scene");
+		mFileDialog.SetTypeFilters({ ".gltf", ".glb" });
+		mScene.GetBoundsBox();
+
 	}
 	void shutdown() override
 	{
-		
+		mScene.unload();
 	}
 	void update() override
 	{
@@ -277,6 +153,8 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
+		if (!mScene.isLoaded()) return;
+
 		glm::mat4 view = camera.GetViewMatrix();
 		glm::mat4 projection = camera.GetProjectionMatrix((float)width, (float)height);
 
@@ -297,7 +175,7 @@ public:
 			mGBufferShader->setUniformInt("texture_normal", 2);
 			mGBufferShader->setUniformInt("texture_emissive", 3);
 
-			mModel->drawWithShader(mGBufferShader, mtinyModel);
+			mScene.DrawToGBuffer(mGBufferShader);
 
 			mGBufferShader->unbind();
 		}
@@ -310,6 +188,8 @@ public:
 
 
 			mGBuffer->bindForReading(10);
+
+			mScene.BindingToCompute(mComputeShader);
 
 			// 設定 Uniforms
 			CameraData cameraShaderData = camera.GetShaderData();
@@ -325,7 +205,7 @@ public:
 			mComputeShader->setUniformBool("useOBVH", useOBVH);
 
 			mComputeShader->setUniformInt("u_envMap", 12);
-			mComputeShader->setUniformBool("useEnvMap", useEnvMap && EnvTextureSSBO != 0);
+			//mComputeShader->setUniformBool("useEnvMap", useEnvMap && EnvTextureSSBO != 0);
 			mComputeShader->setUniformFloat1("envIntensity", envIntensity);
  
 
@@ -345,51 +225,128 @@ public:
 	void imguiRender() override
 	{
 		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID);
-
 		ImGuiIO& io = ImGui::GetIO();
-		ImGui::ShowDemoWindow();
 
 
-		if (ImGui::Begin("Settings"))
+		ImGui::Begin("Properties");
+
+		// -------------------------------------------------------
+		// Mesh (檔案載入與資訊)
+		// -------------------------------------------------------
+		if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
 		{
+			if (ImGui::Button("Open..."))
+			{
+				mFileDialog.Open();
+			}
+
+			ImGui::SameLine(0, 5.0f);
+
+			std::string fullPath = mScene.getFilePath();
+			std::string filename = "None";
+			if (!fullPath.empty()) {
+				filename = fullPath.substr(fullPath.find_last_of("/\\") + 1);
+			}
+			ImGui::Text("%s", filename.c_str());
+
+			if (!fullPath.empty()) {
+				ImGui::Spacing();
+				ImGui::Text("Path:");
+				ImGui::Text("%s", fullPath.c_str());
+				ImGui::Text("Triangles: %d", mScene.getTriangleCount());
+			}
+		}
+
+		// -------------------------------------------------------
+		// Renderer (參數 & Material)
+		// -------------------------------------------------------
+		if (ImGui::CollapsingHeader("Renderer Settings", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			// 顯示 FPS 與 三角形數量
 			ImGui::Text("Render Stats:");
-			ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+			ImGui::Text("Performance: %.1f FPS (%.3f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
 			ImGui::Text("%d vertices,\n%d indices (%d triangles)",
 				io.MetricsRenderVertices,
 				io.MetricsRenderIndices,
-				triangleCount);
+				mScene.getTriangleCount());
 
 			ImGui::Separator();
+
+			bool changed = false;
+
+			// Ray Tracing Params
 			GuiCameraChanged |= ImGui::DragInt("Samples", &samples_per_pixel, 1, 1, 100);
 			GuiCameraChanged |= ImGui::DragInt("Max Bounces", &max_depth, 1, 1, 20);
-			ImGui::Checkbox("Use OBVH", &useOBVH);
 
+			// OBVH
+			bool prevOBVH = useOBVH;
+			ImGui::Checkbox("Use OBVH", &useOBVH);
+			if (prevOBVH != useOBVH) changed = true;
+
+			// Env Map
 			ImGui::Separator();
-			GuiCameraChanged |= ImGui::DragFloat3("Camera Position", &camera.Position.x, 0.1f);
-			GuiCameraChanged |= ImGui::DragFloat("Camera Zoom", &camera.Zoom, 45, 1, 90);
+			GuiCameraChanged |= ImGui::Checkbox("Use EnvMap", &useEnvMap);
+			if (useEnvMap) {
+				changed |= ImGui::DragFloat("Intensity", &envIntensity, 0.1f, 0.0f, 100.0f);
+			}
+		}
+
+		// -------------------------------------------------------
+		// Camera (相機設定)
+		// -------------------------------------------------------
+		if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::Separator();
+			ImGui::Text("Transform");
+			ImGui::Separator();
+
+			GuiCameraChanged |= ImGui::DragFloat3("Position", &camera.Position.x, 0.1f);
+			GuiCameraChanged |= ImGui::DragFloat("Yaw", &camera.Yaw, 1.f, -180.f, 180.f);
+			GuiCameraChanged |= ImGui::DragFloat("Pitch", &camera.Pitch,  1.f, -180.f, 180.f);
+			GuiCameraChanged |= ImGui::DragFloat("FOV (Zoom)", &camera.Zoom, 1.f, 1.0f, 120.0f);
 
 			float speed = mCameraController->GetSpeed();
-			if (ImGui::DragFloat("Cam Speed", &speed, 0.1f)) mCameraController->SetSpeed(speed);
+			if (ImGui::DragFloat("Move Speed", &speed, 0.1f)) mCameraController->SetSpeed(speed);
 		}
-		ImGui::End();
 
+		// 截圖按鈕
+		ImGui::Separator();
+		if (ImGui::Button("Screenshot", ImVec2(-1, 0))) {
+			int num = 0;
+			std::string path;
+			while (true) {
+				// "image\\output.png"
+				path = "image/output_" + std::to_string(num) + ".png";
+				if (!std::filesystem::exists(path)) break;
+				num++;
+			}
+			if (!std::filesystem::exists("image")) std::filesystem::create_directory("image");
+			mShader->exportPNG(path.c_str(), getWindowProperties().width, getWindowProperties().height);
+		}
 
+		ImGui::End(); // End Properties Window
 
+		// =======================================================
+		// Scene Viewport (主渲染畫面)
+		// =======================================================
 		if (ImGui::Begin("Scene"))
 		{
-			if (ImGui::IsItemHovered() || ImGui::IsWindowHovered())
-			{
+			if (ImGui::IsWindowHovered()) {
 				ImGui::SetNextFrameWantCaptureMouse(false);
 			}
 
+			ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 			ImGui::Image(
-					(void*)(intptr_t)mShader->getTexture(),
-					{1280, 720 },
-					ImVec2(0, 1),
-					ImVec2(1, 0));
+				(void*)(intptr_t)mShader->getTexture(),
+				{ 1280, 720 },
+				ImVec2(0, 1),
+				ImVec2(1, 0));
 		}
 		ImGui::End();
 
+		// -------------------------------------------------------
+		// Debug Views (GBuffer)
+		// -------------------------------------------------------
 		if (ImGui::Begin("GBuffer Debug"))
 		{
 			ImGui::Text("Position");
@@ -414,24 +371,32 @@ public:
 		}
 		ImGui::End();
 
+		// =======================================================
+		// File Dialog Logic 
+		// =======================================================
+		mFileDialog.Display();
 
-		ImGui::Begin("My Window");
+		if (mFileDialog.HasSelected())
+		{
+			mScene.unload();
+			std::string selectedPath = mFileDialog.GetSelected().string();
 
-		if (ImGui::Button("Screenshot")) {
-			int num = 0;
-			std::string path;
-			while (true)
+			// 載入模型
+			if (mScene.load(selectedPath))
 			{
-			// "image\\output.png"
-				
-				path = "image\\output_" + std::to_string(num) + ".png";
-				if (!std::filesystem::exists(path)) break;
-				num++;
-			}
-			mShader->exportPNG(path.c_str(), getWindowProperties().width, getWindowProperties().height);
-		}
+				mCurrentFrame = 0;
+				cameraUpdated = true;
 
-		ImGui::End();
+				// 清除殘影
+				int w = getWindowProperties().width;
+				int h = getWindowProperties().height;
+				mComputeShader->clearTexture(mScreenTexture, w, h);
+
+				XENGINE_INFO("Scene loaded: {}", selectedPath);
+			}
+
+			mFileDialog.ClearSelected();
+		}
 	}
 
 };
