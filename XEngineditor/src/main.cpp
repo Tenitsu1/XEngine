@@ -35,7 +35,8 @@ class Editor : public XEngine::App
 
 private:
 
-	Scene mScene;
+	// Scene mScene;
+	std::shared_ptr<Scene> mScene;
 
 	// Shader
 	std::shared_ptr<ComputeShader> mComputeShader;
@@ -85,7 +86,9 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		if (mScene.load(defaultScenePath)) {
+		mScene = std::make_shared<Scene>();
+
+		if (mScene->load(defaultScenePath)) {
 			mCurrentFrame = 0;
 			cameraUpdated = true;
 			mComputeShader->clearTexture(mScreenTexture, width, height);
@@ -126,12 +129,12 @@ public:
 
 		mFileDialog.SetTitle("Open Scene");
 		mFileDialog.SetTypeFilters({ ".gltf", ".glb" });
-		mScene.GetBoundsBox();
+		mScene->GetBoundsBox();
 
 	}
 	void shutdown() override
 	{
-		mScene.unload();
+		mScene->unload();
 	}
 	void update() override
 	{
@@ -153,7 +156,7 @@ public:
 		int width = getWindowProperties().width;
 		int height = getWindowProperties().height;
 
-		if (!mScene.isLoaded()) return;
+		if (!mScene->isLoaded()) return;
 
 		glm::mat4 view = camera.GetViewMatrix();
 		glm::mat4 projection = camera.GetProjectionMatrix((float)width, (float)height);
@@ -175,7 +178,7 @@ public:
 			mGBufferShader->setUniformInt("texture_normal", 2);
 			mGBufferShader->setUniformInt("texture_emissive", 3);
 
-			mScene.DrawToGBuffer(mGBufferShader);
+			mScene->DrawToGBuffer(mGBufferShader);
 
 			mGBufferShader->unbind();
 		}
@@ -189,7 +192,7 @@ public:
 
 			mGBuffer->bindForReading(10);
 
-			mScene.BindingToCompute(mComputeShader);
+			mScene->BindingToCompute(mComputeShader);
 
 			// 設定 Uniforms
 			CameraData cameraShaderData = camera.GetShaderData();
@@ -227,7 +230,6 @@ public:
 		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID);
 		ImGuiIO& io = ImGui::GetIO();
 
-
 		ImGui::Begin("Properties");
 
 		// -------------------------------------------------------
@@ -242,7 +244,7 @@ public:
 
 			ImGui::SameLine(0, 5.0f);
 
-			std::string fullPath = mScene.getFilePath();
+			std::string fullPath = mScene->getFilePath();
 			std::string filename = "None";
 			if (!fullPath.empty()) {
 				filename = fullPath.substr(fullPath.find_last_of("/\\") + 1);
@@ -253,7 +255,7 @@ public:
 				ImGui::Spacing();
 				ImGui::Text("Path:");
 				ImGui::Text("%s", fullPath.c_str());
-				ImGui::Text("Triangles: %d", mScene.getTriangleCount());
+				ImGui::Text("Triangles: %d", mScene->getTriangleCount());
 			}
 		}
 
@@ -268,7 +270,7 @@ public:
 			ImGui::Text("%d vertices,\n%d indices (%d triangles)",
 				io.MetricsRenderVertices,
 				io.MetricsRenderIndices,
-				mScene.getTriangleCount());
+				mScene->getTriangleCount());
 
 			ImGui::Separator();
 
@@ -378,11 +380,11 @@ public:
 
 		if (mFileDialog.HasSelected())
 		{
-			mScene.unload();
+			mScene->unload();
 			std::string selectedPath = mFileDialog.GetSelected().string();
 
 			// 載入模型
-			if (mScene.load(selectedPath))
+			if (mScene->load(selectedPath))
 			{
 				mCurrentFrame = 0;
 				cameraUpdated = true;

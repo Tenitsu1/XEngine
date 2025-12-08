@@ -1,4 +1,4 @@
-#include "core/imguiwindow.h"
+﻿#include "core/imguiwindow.h"
 
 
 #include "engine.h"
@@ -6,6 +6,8 @@
 #include "external//imgui/imgui.h"
 #include "external/imgui/imgui_impl_sdl3.h"
 #include "external/imgui/imgui_impl_opengl3.h"
+#include "log.h"
+#include <filesystem>
 
 namespace XEngine::core
 {
@@ -31,6 +33,20 @@ namespace XEngine::core
 		ImGui_ImplSDL3_InitForOpenGL(window.getSDLWindow(), window.getGLContext());
 		ImGui::StyleColorsDark();
 		ImGui_ImplOpenGL3_Init("#version 460");
+
+		const char* fontPath = "C:\\Windows\\Fonts\\msyh.ttc"; // 微軟正黑體
+
+		if (std::filesystem::exists(fontPath)) {
+			io.Fonts->AddFontFromFileTTF(
+				fontPath,
+				18.0f,
+				nullptr,
+				io.Fonts->GetGlyphRangesChineseFull()
+			);
+		}
+		else {
+			XENGINE_WARN("Chinese font not found at {}", fontPath);
+		}
 	}
 
 	void ImguiWindow::shutdown()
