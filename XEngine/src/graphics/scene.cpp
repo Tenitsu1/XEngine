@@ -6,6 +6,7 @@
 #include "XEngine/accelerators/bvh.h"
 #include "XEngine/shaders/shader.h"
 #include "XEngine/shaders/computeShader.h"
+#include "XEngine/engine.h"
 
 // External
 #include <glad/glad.h>
@@ -43,7 +44,11 @@ bool Scene::load(const std::string& filepath) {
     mFilePath = filepath;
 
     XENGINE_TRACE("Building BVH...");
+    uint64_t buildTimeStart = 0;
+    XEngine::Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
     auto bvhNodes = XEngine::BVH::buildBVH(Mesh, packedTris);
+    float buildTime = XEngine::Engine::Instance().getWindow().getDeltaTime(buildTimeStart);
+    XENGINE_TRACE("BVH Build Time: {:.4f} seconds", buildTime);
     XENGINE_TRACE("BVH Built. Nodes: {}", bvhNodes.size());
 
     // build SSBOs to upload shader
