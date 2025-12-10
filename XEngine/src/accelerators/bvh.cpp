@@ -20,7 +20,6 @@ namespace XEngine::BVH {
 
     std::vector<BVHNode> buildBVH(Mesh& mesh, std::vector<PackedTriangle>& packedTris) {
         std::vector<BVHNode> nodes;
-        Bounds::Bound3 rootAABB;
         const int totalTriangles = (int)mesh.indices.size();
         // 預先保留記憶體以減少 resize
         nodes.reserve(totalTriangles * 2);
@@ -29,13 +28,11 @@ namespace XEngine::BVH {
         std::vector<Bounds::Bound3> triangleAABBs(totalTriangles);
         for (size_t i = 0; i < totalTriangles; i++) {
             const glm::ivec4& face = mesh.indices[i];
-            const Bounds::Bound3 triangleAABB(
+            triangleAABBs[i] =  Bounds::Bound3(
                 mesh.vertices[face.x],
                 mesh.vertices[face.y],
                 mesh.vertices[face.z]
             );
-            triangleAABBs[i] = triangleAABB;
-            rootAABB.Union(triangleAABB);
         }
 
         auto swapPrimitives = [&](int indexA, int indexB) {
@@ -48,13 +45,21 @@ namespace XEngine::BVH {
         };
 
 
-        std::function<int(const int, const int, const int, const Bounds::Bound3&)> buildNode =
-            [&](const int start, const int end, const int depth, const Bounds::Bound3& nodeAABB) -> int {
+        std::function<int(const int, const int, const int)> buildNode =
+            [&](const int start, const int end, const int depth) -> int {
 
                 const int count = end - start;
                 const int currentIndex = (int)nodes.size();
                 nodes.emplace_back();
                 auto& node = nodes.back();
+
+                // 計算當前節點的重心 AABB (Centroid AABB)
+                Bounds::Bound3 nodeAABB, centroidAABB;
+                for (int i = start; i < end; i++) {
+                    auto& triangleAABB = triangleAABBs[i];
+                    nodeAABB.Union(triangleAABB);
+                    centroidAABB.Union(triangleAABB.Center());
+                }
 
                 // 更新節點資訊
                 node.aabbMin = nodeAABB.min;
@@ -67,10 +72,6 @@ namespace XEngine::BVH {
                     return currentIndex;
                 }
 
-                // 計算當前節點的重心 AABB (Centroid AABB)
-                Bounds::Bound3 centroidAABB;
-                for (int i = start; i < end; i++) centroidAABB.Union(triangleAABBs[i].Center());
-
                 // 計算不分割的代價 (作為葉子節點)
                 const float leafCost = count * nodeAABB.SurfaceArea();
 
@@ -78,7 +79,6 @@ namespace XEngine::BVH {
                 int bestAxis = -1;
                 float bestCost = leafCost; // 初始值設為 leafCost，避免無限分割
                 float bestSplitPos = 0.0f;
-                Bounds::Bound3 bestAABB[2];
 
                 // 遍歷三個軸 (0:X, 1:Y, 2:Z)
                 for (int axis = 0; axis < 3; axis++) {
@@ -105,7 +105,7 @@ namespace XEngine::BVH {
                     // Pass 2: 評估分割代價
                     // 使用前綴和 (Sweep) 快速計算左右面積
                     int leftCount[SAH_BINS - 1], rightCount[SAH_BINS - 1];
-                    Bounds::Bound3 leftAABB[SAH_BINS - 1], rightAABB[SAH_BINS - 1];
+                    float leftArea[SAH_BINS - 1], rightArea[SAH_BINS - 1];
                     Bounds::Bound3 leftBox, rightBox;
                     int leftSum = 0, rightSum = 0;
 
@@ -113,13 +113,13 @@ namespace XEngine::BVH {
                         // 從左掃描
                         const auto& leftBin = bins[i];
                         leftSum += leftBin.count;
-                        leftAABB[i] = leftBox.Union(leftBin.bounds);
+                        leftArea[i] = leftBox.Union(leftBin.bounds).SurfaceArea();
                         leftCount[i] = leftSum;
 
                         // 從右掃描
                         const auto& rightBin = bins[j + 1];
                         rightSum += rightBin.count;
-                        rightAABB[j] = rightBox.Union(rightBin.bounds);
+                        rightArea[j] = rightBox.Union(rightBin.bounds).SurfaceArea();
                         rightCount[j] = rightSum;
                     }
 
@@ -129,14 +129,10 @@ namespace XEngine::BVH {
                         if (leftCount[i] == temp || rightCount[i] == 0) continue;
                         temp = leftCount[i];
 
-                        Bounds::Bound3& leftBox = leftAABB[i];
-                        Bounds::Bound3& rightBox = rightAABB[i];
-                        float cost = leftCount[i] * leftBox.SurfaceArea() + rightCount[i] * rightBox.SurfaceArea();
+                        float cost = leftCount[i] * leftArea[i] + rightCount[i] * rightArea[i];
                         if (cost <= bestCost) {
                             bestCost = cost;
                             bestAxis = axis;
-                            bestAABB[0] = leftBox;
-                            bestAABB[1] = rightBox;
                             // 分割位置設為該桶的右邊界比例處
                             bestSplitPos = boundsMin + extent * (i + 1) / (float)SAH_BINS;
                         }
@@ -167,14 +163,14 @@ namespace XEngine::BVH {
                 }
 
                 // 遞迴建構子節點
-                node.left = buildNode(start, mid, depth - 1, bestAABB[0]);
-                node.right = buildNode(mid, end, depth - 1, bestAABB[1]);
+                node.left = buildNode(start, mid, depth - 1);
+                node.right = buildNode(mid, end, depth - 1);
 
                 return currentIndex;
             };
 
         // 遞迴
-        buildNode(0, totalTriangles, MAX_DEPTH, rootAABB);
+        buildNode(0, totalTriangles, MAX_DEPTH);
 
         return nodes;
     }
