@@ -5,8 +5,10 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 // --- struct ---
 struct BVHNode {
-    vec4 aabbMin;
-    vec4 aabbMax;
+    vec3 aabbMin;
+    float padding1;
+    vec3 aabbMax;
+    float padding2;
     int left;
     int right;
     int start;
@@ -266,8 +268,8 @@ vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
 }
 
 // --- Triangle intersect ---
-vec3 RayTrianglePacked(Ray ray, PackedTriangle tri) {
-    const vec3 p0 = tri.v0.xyz;
+void RayTrianglePacked(Ray ray, int i, inout vec4 hitResult) {
+    PackedTriangle tri = packedTris[i];
     const vec3 edge1 = tri.e1.xyz;
     const vec3 edge2 = tri.e2.xyz;
     const bool doubleSided = bool(tri.v0.w);
@@ -275,23 +277,24 @@ vec3 RayTrianglePacked(Ray ray, PackedTriangle tri) {
     const vec3 pvec = cross(ray.direction, edge2);
     const float det = dot(edge1, pvec);
     const float DET = doubleSided ? abs(det) : det;
-    if (DET < EPSILON) return vec3(-1.0);
+    if (DET < EPSILON) return;
 
     const float invDet = 1.0 / det;
-    const vec3 tvec = ray.origin - p0;
+    const vec3 tvec = ray.origin - tri.v0.xyz;
     const float u = dot(tvec, pvec) * invDet;
-    if (u < 0.0 || u > 1.0) return vec3(-1.0);
+    if (u < 0.0 || u > 1.0) return;
 
     const vec3 qvec = cross(tvec, edge1);
     const float v = dot(ray.direction, qvec) * invDet;
-    if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
+    if (v < 0.0 || u + v > 1.0) return;
 
     const float t = dot(edge2, qvec) * invDet;
-    if (t < EPSILON) return vec3(-1.0);
-    return vec3(t, u, v);
+    if (t >= hitResult.x || t < EPSILON) return;
+    hitResult = vec4(t, u, v, i);
 }
 
-vec3 RayTriangle(Ray ray, ivec4 index) {
+void RayTriangle(Ray ray, int i, inout vec4 hitResult) {
+    const ivec4 index = indices[i];
     const vec3 p0 = vertices[index.x].xyz;
     const vec3 p1 = vertices[index.y].xyz;
     const vec3 p2 = vertices[index.z].xyz;
@@ -303,27 +306,26 @@ vec3 RayTriangle(Ray ray, ivec4 index) {
 
     const float det = dot(edge1, pvec);
     const float DET = doubleSided ? abs(det) : det;
-    if (DET < EPSILON) return vec3(-1.0);
+    if (DET < EPSILON) return;
 
     const float invDet = 1.0 / det;
     const vec3 tvec = ray.origin - p0;
     const float u = dot(tvec, pvec) * invDet;
-    if (u < 0.0 || u > 1.0) return vec3(-1.0);
+    if (u < 0.0 || u > 1.0) return;
 
     const vec3 qvec = cross(tvec, edge1);
     const float v = dot(ray.direction, qvec) * invDet;
-    if (v < 0.0 || u + v > 1.0) return vec3(-1.0);
+    if (v < 0.0 || u + v > 1.0) return;
 
     const float t = dot(edge2, qvec) * invDet;
-    if (t < EPSILON) return vec3(-1.0);
-    return vec3(t, u, v);
+    if (t >= hitResult.x || t < EPSILON) return;
+    hitResult = vec4(t, u, v, i);
 }
 
 // --- AABB & BVH ---
-
-float RayBoundingBox_t(Ray ray, vec3 minB, vec3 maxB) {
-    const vec3 t0 = (minB - ray.origin) * ray.invDirection;
-    const vec3 t1 = (maxB - ray.origin) * ray.invDirection;
+float RayBoundingBox_t(Ray ray, BVHNode node) {
+    const vec3 t0 = (node.aabbMin - ray.origin) * ray.invDirection;
+    const vec3 t1 = (node.aabbMax - ray.origin) * ray.invDirection;
     const vec3 tmin = min(t0, t1);
     const vec3 tmax = max(t0, t1);
     const float entry = max(max(tmin.x, tmin.y), tmin.z);
@@ -332,9 +334,21 @@ float RayBoundingBox_t(Ray ray, vec3 minB, vec3 maxB) {
     return hit ? entry : INF;
 }
 
+ivec2 GetClosestChildren(Ray ray, BVHNode node, float tMax) {
+    const float tLeft = RayBoundingBox_t(ray, bvhNodes[node.left]);
+    const float tRight = RayBoundingBox_t(ray, bvhNodes[node.right]);
+
+    const ivec2 children = ivec2(tLeft < tMax ? node.left : -1, tRight < tMax ? node.right : -1);
+    return (tLeft < tRight) ? children.yx : children;
+}
+
 vec4 RayBVH(Ray ray) {
-    float tMax = INF;
-    vec4 hitResult = vec4(0.0, 0.0, 0.0, -1.0);
+    // 根節點 AABB 檢查
+    if (RayBoundingBox_t(ray, bvhNodes[0]) == INF) {
+        return vec4(0.0, 0.0, 0.0, -1.0);
+    }
+
+    vec4 hitResult = vec4(INF, 0.0, 0.0, -1.0);
 
     int idxStack[MAX_STACK_SIZE];
     int stackPtr = 0;
@@ -346,53 +360,23 @@ vec4 RayBVH(Ray ray) {
 
         if (node.count > 0) {
             // 葉節點
-            const int end = node.start + node.count;
-            for (int i = node.start; i < end; i++) {   
-                // const vec3 temp = RayTriangle(ray, indices[i]);
-                const vec3 temp = RayTrianglePacked(ray, packedTris[i]);
-
-                if (temp.x != -1.0 && temp.x < tMax) {
-                    tMax = temp.x;
-                    hitResult = vec4(temp, i);
-                }
+            for (int i = node.start; i < node.start + node.count; i++) {
+                RayTrianglePacked(ray, i, hitResult);
             }
         } else {
-            const int leftIdx = node.left;
-            const int rightIdx = node.right;
-
-            const BVHNode nodeLeft = bvhNodes[leftIdx];
-            const BVHNode nodeRight = bvhNodes[rightIdx];
-            const float tLeft = RayBoundingBox_t(ray, nodeLeft.aabbMin.xyz, nodeLeft.aabbMax.xyz);
-            const float tRight = RayBoundingBox_t(ray, nodeRight.aabbMin.xyz, nodeRight.aabbMax.xyz);
-
-            if (isinf(tMax) || tLeft < tMax || tRight < tMax) {
-                if (tLeft < tRight) {
-                    if (tRight < tMax) idxStack[stackPtr++] = rightIdx;
-                    if (tLeft < tMax)  idxStack[stackPtr++] = leftIdx;
-                } else {
-                    if (tLeft < tMax)  idxStack[stackPtr++] = leftIdx;
-                    if (tRight < tMax) idxStack[stackPtr++] = rightIdx;
-                }
-            }
+            // 內部節點
+            const ivec2 childIndices = GetClosestChildren(ray, node, hitResult.x);
+            if (childIndices.x != -1) idxStack[stackPtr++] = childIndices.x;
+            if (childIndices.y != -1) idxStack[stackPtr++] = childIndices.y;
         }
     }
     return hitResult;
 }
 
 // --- hit function ---
- vec4 RayNoBVH(Ray ray) {
-    float tMax = INF;
-    vec4 hitResult = vec4(0.0, 0.0, 0.0, -1.0);
-    for (int i = 0; i < indices.length(); i++) {
-        // const vec3 temp = RayTriangle(ray, indices[i]);
-        const vec3 temp = RayTrianglePacked(ray, packedTris[i]);
-        if (temp == vec3(-1.0)) continue;
-
-        if (temp.x < tMax) {
-            tMax = temp.x;
-            hitResult = vec4(temp, i);
-        }
-    }
+vec4 RayNoBVH(Ray ray) {
+    vec4 hitResult = vec4(INF, 0.0, 0.0, -1.0);
+    for (int i = 0; i < indices.length(); i++) RayTrianglePacked(ray, i, hitResult);
     return hitResult;
 }
 
@@ -485,7 +469,7 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
 
         // 2. 如果打到正面，就加上發光顏色
         // 不再因為是光源就 Break，而是繼續進行下方的散射計算
-       
+
         if (length(emission) > 0.0){
             if (hit.frontFace) finalColor += throughput * emission;
         }
@@ -589,9 +573,7 @@ void main()
 
         float maxRadiance = 50.0; 
         float lum = dot(rayColor, vec3(1));
-        if (lum > maxRadiance) {
-            rayColor *= maxRadiance / lum;
-        }
+        if (lum > maxRadiance) rayColor *= maxRadiance / lum;
 
         currentFrameColor += rayColor;
     }

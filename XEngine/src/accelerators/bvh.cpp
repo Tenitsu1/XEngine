@@ -48,8 +48,8 @@ namespace XEngine::BVH {
         };
 
 
-        std::function<int(int, int, int, Bounds::Bound3)> buildNode =
-            [&](int start, int end, int depth, Bounds::Bound3 nodeAABB) -> int {
+        std::function<int(const int, const int, const int, const Bounds::Bound3&)> buildNode =
+            [&](const int start, const int end, const int depth, const Bounds::Bound3& nodeAABB) -> int {
 
                 const int count = end - start;
                 const int currentIndex = (int)nodes.size();
@@ -71,9 +71,12 @@ namespace XEngine::BVH {
                 Bounds::Bound3 centroidAABB;
                 for (int i = start; i < end; i++) centroidAABB.Union(triangleAABBs[i].Center());
 
+                // 計算不分割的代價 (作為葉子節點)
+                const float leafCost = count * nodeAABB.SurfaceArea();
+
                 // SAH 分割
                 int bestAxis = -1;
-                float bestCost = std::numeric_limits<float>::max();
+                float bestCost = leafCost; // 初始值設為 leafCost，避免無限分割
                 float bestSplitPos = 0.0f;
                 Bounds::Bound3 bestAABB[2];
 
@@ -91,9 +94,9 @@ namespace XEngine::BVH {
 
                     // Pass 1: 將三角形填入桶中
                     for (int i = start; i < end; i++) {
-                        auto& triangleAABB = triangleAABBs[i];
-                        glm::vec3& center = triangleAABB.Center();
-                        int binIdx = std::min(SAH_BINS - 1, (int)((center[axis] - boundsMin) * scale));
+                        const auto& triangleAABB = triangleAABBs[i];
+                        const glm::vec3& center = triangleAABB.Center();
+                        const int binIdx = std::min(SAH_BINS - 1, (int)((center[axis] - boundsMin) * scale));
                         auto& bin = bins[binIdx];
                         bin.count++;
                         bin.bounds.Union(triangleAABB);
@@ -108,13 +111,13 @@ namespace XEngine::BVH {
 
                     for (int i = 0, j = SAH_BINS - 2; i < SAH_BINS - 1; i++, j--) {
                         // 從左掃描
-                        auto& leftBin = bins[i];
+                        const auto& leftBin = bins[i];
                         leftSum += leftBin.count;
                         leftAABB[i] = leftBox.Union(leftBin.bounds);
                         leftCount[i] = leftSum;
 
                         // 從右掃描
-                        auto& rightBin = bins[j + 1];
+                        const auto& rightBin = bins[j + 1];
                         rightSum += rightBin.count;
                         rightAABB[j] = rightBox.Union(rightBin.bounds);
                         rightCount[j] = rightSum;
@@ -129,7 +132,7 @@ namespace XEngine::BVH {
                         Bounds::Bound3& leftBox = leftAABB[i];
                         Bounds::Bound3& rightBox = rightAABB[i];
                         float cost = leftCount[i] * leftBox.SurfaceArea() + rightCount[i] * rightBox.SurfaceArea();
-                        if (cost < bestCost) {
+                        if (cost <= bestCost) {
                             bestCost = cost;
                             bestAxis = axis;
                             bestAABB[0] = leftBox;
@@ -140,11 +143,8 @@ namespace XEngine::BVH {
                     }
                 }
 
-                // 計算不分割的代價 (作為葉子節點)
-                const float leafCost = count * nodeAABB.SurfaceArea();
-
                 // 如果無法找到有效分割，或分割代價比直接做葉子還高，則終止
-                if (bestAxis == -1 || bestCost >= leafCost) {
+                if (bestAxis == -1 || bestCost == leafCost) {
                     node.start = start;
                     node.count = count;
                     return currentIndex;
@@ -154,7 +154,7 @@ namespace XEngine::BVH {
                 // 將中心點小於 splitPos 的放到左邊，大於的放到右邊
                 int mid = start;
                 for (int i = start; i < end; i++) {
-                    glm::vec3& center = triangleAABBs[i].Center();
+                    const glm::vec3& center = triangleAABBs[i].Center();
                     if (center[bestAxis] < bestSplitPos) swapPrimitives(i, mid++);
                 }
 
