@@ -542,7 +542,8 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
 
 
 // ----------------------------------------------------
-bool stopFrame = false;
+// 停止根據時間降噪
+bool stopDenoise = true;
 void main()
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -551,16 +552,17 @@ void main()
     vec4 previousData = imageLoad(screenTexture, pixel);
     vec3 oldColor = previousData.rgb;
     float frameCount = previousData.a;
-    frameCount = cameraUpdated && !stopFrame ? 1.0 : frameCount + 1.0;
+    if (stopDenoise) frameCount = 0.0;
+    frameCount = cameraUpdated ? 1.0 : frameCount + 1.0;
 
-    if (stopFrame && frameCount > 1000.0) {
+    if (frameCount > 1000.0) {
         imageStore(screenTexture, pixel, vec4(oldColor, frameCount));
         return;
     }
 
     uint state = getCurrentState(pixel, frameCount);
 
-    vec2 jitter = RandomDirection2D(state) - 0.5;
+    vec2 jitter = stopDenoise ? vec2(0.0) : RandomDirection2D(state) - 0.5;
     vec3 dir = getRayDir(vec2(pixel) + 0.5 + jitter);
 
     //Ray ray = createRay(camera.position, dir);
