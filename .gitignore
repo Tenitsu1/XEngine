@@ -3,6 +3,7 @@
 .vscode/
 bin*/
 logs/
+XEngineditor/image/
 
 # Files
 *.user

@@ -27,13 +27,9 @@ namespace XEngine::BVH {
 
     struct BVHNode {
         glm::vec3 aabbMin;
-        float padding1;
+        int left;   // 負值表示左子節點索引，正值(或零)表示葉子節點 start
         glm::vec3 aabbMax;
-        float padding2;
-        int left = -1;   // 左子節點索引，-1表示無
-        int right = -1;  // 右子節點索引，-1表示無
-        int start = -1;  // 三角形起始索引（葉節點）
-        int count = 0;  // 三角形數量（葉節點）
+        int right;  // 負值表示右子節點索引，正值表示葉子節點 count
     };
 
     struct Statistics {

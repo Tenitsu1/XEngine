@@ -26,6 +26,7 @@
 
 #include <string>
 #include <filesystem>
+#include <sstream>
 
 using namespace XEngine;
 
@@ -55,7 +56,7 @@ private:
 	float deltaTime = 0;
 
 	// setting
-	bool useOBVH = true;
+	bool useBVH = true;
 	int samples_per_pixel = 1;
 	int max_depth = 5;
 	int mCurrentFrame = 0;
@@ -66,7 +67,7 @@ private:
 
 	// File Browser State
 	ImGui::FileBrowser mFileDialog;
-	std::string defaultScenePath = "models\\cornell_box\\CornellBox_Transmission.gltf";
+	std::string defaultScenePath = "models\\cornell_box\\CornellBox_Close.gltf";
 
 public:
 
@@ -119,6 +120,7 @@ public:
 		// Camera setting
 		/*camera = Camera(glm::vec3(8.f, 4.0f, 0.2f));*/
 		camera = Camera(glm::vec3(0.f, 2.0f, -5.f));
+		// camera = Camera(glm::vec3(7.5f, 3.0f, 0.f));
 		camera.Yaw = -180.0f;
 		camera.Pitch = 0.0f;
 		camera.MovementSpeed = 5.0f; 
@@ -205,7 +207,7 @@ public:
 			mComputeShader->setUniformMat4("invViewProj", invViewProj);
 			mComputeShader->setUniformInt("SAMPLES_PER_PIXEL", samples_per_pixel);
 			mComputeShader->setUniformInt("MAX_DEPTH", max_depth);
-			mComputeShader->setUniformBool("useOBVH", useOBVH);
+			mComputeShader->setUniformBool("useBVH", useBVH);
 
 			mComputeShader->setUniformInt("u_envMap", 12);
 			//mComputeShader->setUniformBool("useEnvMap", useEnvMap && EnvTextureSSBO != 0);
@@ -222,6 +224,17 @@ public:
 			mShader->bind();
 			mShader->bindTexture(mScreenTexture, 0, "screenTexture");
 			mShader->draw(width, height);
+		}
+
+		if (cameraUpdated) {
+			mCurrentFrame = 0;
+		}
+		else if (mCurrentFrame <= 1000) {
+			mCurrentFrame++;
+		}
+
+		if (mCurrentFrame == 1000) {
+			XENGINE_INFO("Reached 1000 frames, stopping accumulation to save performance.");
 		}
 	}
 
@@ -280,10 +293,10 @@ public:
 			GuiCameraChanged |= ImGui::DragInt("Samples", &samples_per_pixel, 1, 1, 100);
 			GuiCameraChanged |= ImGui::DragInt("Max Bounces", &max_depth, 1, 1, 20);
 
-			// OBVH
-			bool prevOBVH = useOBVH;
-			ImGui::Checkbox("Use OBVH", &useOBVH);
-			if (prevOBVH != useOBVH) changed = true;
+			// BVH
+			bool prevBVH = useBVH;
+			ImGui::Checkbox("Use BVH", &useBVH);
+			if (prevBVH != useBVH) changed = true;
 
 			// Env Map
 			ImGui::Separator();
@@ -314,16 +327,18 @@ public:
 		// 截圖按鈕
 		ImGui::Separator();
 		if (ImGui::Button("Screenshot", ImVec2(-1, 0))) {
-			int num = 0;
-			std::string path;
-			while (true) {
-				// "image\\output.png"
-				path = "image/output_" + std::to_string(num) + ".png";
-				if (!std::filesystem::exists(path)) break;
-				num++;
+			std::string fullPath = mScene->getFilePath();
+			std::string filename = "None";
+			if (!fullPath.empty()) {
+				std::filesystem::path p(fullPath);
+				filename = p.stem().string(); // 不含副檔名
 			}
+			std::ostringstream path;
+			path << std::fixed;
+			path.precision(1);
+			path << "image/" << filename << "-" << samples_per_pixel << "spp" << "-" << ImGui::GetIO().Framerate << "fps" << ".png";
 			if (!std::filesystem::exists("image")) std::filesystem::create_directory("image");
-			mShader->exportPNG(path.c_str(), getWindowProperties().width, getWindowProperties().height);
+			mShader->exportPNG(path.str(), getWindowProperties().width, getWindowProperties().height);
 		}
 
 		ImGui::End(); // End Properties Window

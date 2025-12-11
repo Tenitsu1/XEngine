@@ -54,22 +54,25 @@ namespace XEngine::BVH {
                 auto& node = nodes.back();
 
                 // 計算當前節點的重心 AABB (Centroid AABB)
-                Bounds::Bound3 nodeAABB, centroidAABB;
+                Bounds::Bound3 nodeAABB;
                 for (int i = start; i < end; i++) {
-                    auto& triangleAABB = triangleAABBs[i];
-                    nodeAABB.Union(triangleAABB);
-                    centroidAABB.Union(triangleAABB.Center());
+                    nodeAABB.Union(triangleAABBs[i]);
                 }
 
                 // 更新節點資訊
                 node.aabbMin = nodeAABB.min;
                 node.aabbMax = nodeAABB.max;
+                node.left = start;
+                node.right = count;
 
                 // 終止條件：三角形數量少或達到最大深度
                 if (count <= MAX_LEAF_TRIANGLES || depth <= 0) {
-                    node.start = start;
-                    node.count = count;
                     return currentIndex;
+                }
+
+                Bounds::Bound3 centroidAABB;
+                for (int i = start; i < end; i++) {
+                    centroidAABB.Union(triangleAABBs[i].Center());
                 }
 
                 // 計算不分割的代價 (作為葉子節點)
@@ -109,18 +112,20 @@ namespace XEngine::BVH {
                     Bounds::Bound3 leftBox, rightBox;
                     int leftSum = 0, rightSum = 0;
 
-                    for (int i = 0, j = SAH_BINS - 2; i < SAH_BINS - 1; i++, j--) {
+                    for (int i = 0; i < SAH_BINS - 1; i++) {
                         // 從左掃描
                         const auto& leftBin = bins[i];
                         leftSum += leftBin.count;
                         leftArea[i] = leftBox.Union(leftBin.bounds).SurfaceArea();
                         leftCount[i] = leftSum;
+                    }
 
+                    for (int i = SAH_BINS - 2;  i >= 0; i--) {
                         // 從右掃描
-                        const auto& rightBin = bins[j + 1];
+                        const auto& rightBin = bins[i + 1];
                         rightSum += rightBin.count;
-                        rightArea[j] = rightBox.Union(rightBin.bounds).SurfaceArea();
-                        rightCount[j] = rightSum;
+                        rightArea[i] = rightBox.Union(rightBin.bounds).SurfaceArea();
+                        rightCount[i] = rightSum;
                     }
 
                     // 尋找此軸上的最小 SAH
@@ -139,10 +144,8 @@ namespace XEngine::BVH {
                     }
                 }
 
-                // 如果無法找到有效分割，或分割代價比直接做葉子還高，則終止
+                // 如果無法找到有效分割，或分割代價與直接做葉子相同，則終止
                 if (bestAxis == -1 || bestCost == leafCost) {
-                    node.start = start;
-                    node.count = count;
                     return currentIndex;
                 }
 
@@ -157,14 +160,12 @@ namespace XEngine::BVH {
                 // 防止極端情況 (例如所有重心都在同一側，導致無限遞迴)
                 if (mid == start || mid == end) {
                     // 如果幾何分割失敗，直接設為葉節點
-                    node.start = start;
-                    node.count = count;
                     return currentIndex;
                 }
 
                 // 遞迴建構子節點
-                node.left = buildNode(start, mid, depth - 1);
-                node.right = buildNode(mid, end, depth - 1);
+                node.left = -buildNode(start, mid, depth - 1);
+                node.right = -buildNode(mid, end, depth - 1);
 
                 return currentIndex;
             };
@@ -259,11 +260,11 @@ namespace XEngine::BVH {
 
         std::function<void(int, int)> traverse = [&](int index, int depth) {
             const BVHNode& node = nodes[index];
-            if (node.count > 0) {
+            if (node.right > 0) {
                 // 葉節點
                 leafNode.count++;
                 leafNode.depths.push_back(depth);
-                leafNode.triangleCounts.push_back(node.count);
+                leafNode.triangleCounts.push_back(node.right);
                 return;
             }
             if (node.left != -1) traverse(node.left, depth + 1);

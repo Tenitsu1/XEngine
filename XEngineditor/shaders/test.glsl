@@ -6,13 +6,11 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 // --- struct ---
 struct BVHNode {
     vec3 aabbMin;
-    float padding1;
-    vec3 aabbMax;
-    float padding2;
     int left;
+    vec3 aabbMax;
     int right;
-    int start;
-    int count;
+    #define start left
+    #define count right
 };
 
 struct Material {
@@ -85,7 +83,7 @@ uniform vec2 u_resolution;
 uniform float u_time;
 uniform int SAMPLES_PER_PIXEL;
 uniform int MAX_DEPTH;
-uniform bool useOBVH; 
+uniform bool useBVH; 
 uniform Camera camera;
 uniform bool cameraUpdated;
 uniform mat4 invViewProj;
@@ -100,6 +98,9 @@ const float INF = 1.0 / 0.0;
 const int LIGHT = 1;
 const vec2 invAtan = vec2(0.1591, 0.3183); // 1/(2*PI), 1/PI
 
+bool isNanOrInf(vec3 color) {
+    return any(isnan(color)) || any(isinf(color));
+}
 
 // --- random number ---
 uint hash(uint x) {
@@ -335,20 +336,19 @@ float RayBoundingBox_t(Ray ray, BVHNode node) {
 }
 
 ivec2 GetClosestChildren(Ray ray, BVHNode node, float tMax) {
-    const float tLeft = RayBoundingBox_t(ray, bvhNodes[node.left]);
-    const float tRight = RayBoundingBox_t(ray, bvhNodes[node.right]);
+    const int leftIdx = abs(node.left);
+    const int rightIdx = abs(node.right);
+    const float tLeft = RayBoundingBox_t(ray, bvhNodes[leftIdx]);
+    const float tRight = RayBoundingBox_t(ray, bvhNodes[rightIdx]);
 
-    const ivec2 children = ivec2(tLeft < tMax ? node.left : -1, tRight < tMax ? node.right : -1);
+    const ivec2 children = ivec2(tLeft < tMax ? leftIdx : -1, tRight < tMax ? rightIdx : -1);
     return (tLeft < tRight) ? children.yx : children;
 }
 
 vec4 RayBVH(Ray ray) {
-    // 根節點 AABB 檢查
-    if (RayBoundingBox_t(ray, bvhNodes[0]) == INF) {
-        return vec4(0.0, 0.0, 0.0, -1.0);
-    }
-
     vec4 hitResult = vec4(INF, 0.0, 0.0, -1.0);
+    // 根節點 AABB 檢查
+    if (RayBoundingBox_t(ray, bvhNodes[0]) == INF) return hitResult;
 
     int idxStack[MAX_STACK_SIZE];
     int stackPtr = 0;
@@ -358,7 +358,7 @@ vec4 RayBVH(Ray ray) {
         const int idx = idxStack[--stackPtr];
         BVHNode node = bvhNodes[idx];
 
-        if (node.count > 0) {
+        if (node.count >= 0) {
             // 葉節點
             for (int i = node.start; i < node.start + node.count; i++) {
                 RayTrianglePacked(ray, i, hitResult);
@@ -382,7 +382,7 @@ vec4 RayNoBVH(Ray ray) {
 
 bool hit_world(Ray ray, out HitRecord hit) {
     // 遍歷 BVH 找到最近交點
-    vec4 hitData = useOBVH ? RayBVH(ray) : RayNoBVH(ray);
+    vec4 hitData = useBVH ? RayBVH(ray) : RayNoBVH(ray);
     const int hitIdx = int(hitData.w);
 
     // 無交點
@@ -398,14 +398,13 @@ bool hit_world(Ray ray, out HitRecord hit) {
     const bool frontFace = dot(ray.direction, geoNormal) < 0.0;
     hit.frontFace = frontFace;
     hit.geoNormal = frontFace ? geoNormal : -geoNormal;
-    hit.shadingNormal = hit.geoNormal;
 
     // 插值法線
     const vec3 n0 = vertexNormals[index.x].xyz;
     const vec3 n1 = vertexNormals[index.y].xyz;
     const vec3 n2 = vertexNormals[index.z].xyz;
-    const vec3 shadingNormal = normalize(barycentric(n0, n1, n2, u, v));
-    hit.shadingNormal = dot(hit.geoNormal, shadingNormal) > 0.0 ? shadingNormal : -shadingNormal;
+    hit.shadingNormal = normalize(barycentric(n0, n1, n2, u, v));
+    // hit.shadingNormal = vec3(0.0); // [測試] 關閉插值法線
 
     // 材質 顏色
     const int matID = materialIndices[hitIdx];
@@ -436,6 +435,9 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
     vec3 throughput = vec3(1.0); 
     vec3 finalColor = vec3(0.0);
     const vec3 WHITE = vec3(1.0, 1.0, 1.0);
+    const vec2 screenUV = (pixel + 0.5) / u_resolution;
+    const vec3 gN = texture(gNormal, screenUV).xyz;
+    const vec3 shadingNormal = normalize(gN * 2.0 - 1.0);
 
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         if (length(throughput) < 1e-6) break;
@@ -451,17 +453,11 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
         }
 
         // gNormal (When Depth == 0)
-        if (depth == 0) {
-            vec2 screenUV = (vec2(pixel) + 0.5) / u_resolution;
-            vec3 gN = texture(gNormal, screenUV).xyz;
-            if (length(gN) > 0.1) {
-                hit.shadingNormal = normalize(gN * 2.0 - 1.0);
-            }
-        }
+        if (depth == 0 && length(gN) > 0.1) hit.shadingNormal = shadingNormal;
 
         Material material = materials[hit.materialID];
         vec3 V = -ray.direction;
-        vec3 N = hit.shadingNormal;
+        vec3 N = dot(hit.shadingNormal, hit.geoNormal) > 0.0 ? hit.shadingNormal : -hit.shadingNormal;
 
         // Emission
 
@@ -470,8 +466,8 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
         // 2. 如果打到正面，就加上發光顏色
         // 不再因為是光源就 Break，而是繼續進行下方的散射計算
 
-        if (length(emission) > 0.0){
-            if (hit.frontFace) finalColor += throughput * emission;
+        if (length(emission) > 0.0 && hit.frontFace) {
+            finalColor += throughput * emission;
         }
 
         // 3. 能量守恆與 Russian Roulette
@@ -520,9 +516,7 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
 
             if (RandomValue(state) < specularProb) {
                 // const float roughness = material.roughnessFactor;
-                const float roughness = hit.roughness;
-
-                const vec3 H = ImportanceSampleGGX(state, N, roughness);
+                const vec3 H = ImportanceSampleGGX(state, N, hit.roughness);
                 const vec3 L = reflect(-V, H);
                 ray.direction = L;
 
@@ -532,7 +526,7 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
                 throughput /= specularProb; // balance energy
 
             } else {
-                if (metallic >= 1.0) break; 
+                if (metallic >= 1.0) break;
                 ray.direction = cosine_weighted_direction(N, state);
                 throughput *= hit.color;
                 // throughput *= max(dot(N, ray.direction), 0.0);  // lambertian cosine term
@@ -540,7 +534,7 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
             }
         }
         ray.invDirection = 1.0 / ray.direction;
-        ray.origin = hit.point + ray.direction * 1e-2;
+        ray.origin = hit.point + ray.direction * 1e-4;
     }
     return finalColor;
 }
@@ -548,6 +542,7 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
 
 
 // ----------------------------------------------------
+bool stopFrame = false;
 void main()
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -556,14 +551,18 @@ void main()
     vec4 previousData = imageLoad(screenTexture, pixel);
     vec3 oldColor = previousData.rgb;
     float frameCount = previousData.a;
+    frameCount = cameraUpdated && !stopFrame ? 1.0 : frameCount + 1.0;
 
-    frameCount = cameraUpdated ? 1.0 : frameCount + 1.0;
+    if (stopFrame && frameCount > 1000.0) {
+        imageStore(screenTexture, pixel, vec4(oldColor, frameCount));
+        return;
+    }
 
     uint state = getCurrentState(pixel, frameCount);
 
     vec2 jitter = RandomDirection2D(state) - 0.5;
     vec3 dir = getRayDir(vec2(pixel) + 0.5 + jitter);
-    
+
     //Ray ray = createRay(camera.position, dir);
 
     vec3 currentFrameColor = vec3(0.0);
@@ -582,7 +581,7 @@ void main()
     float weight = 1.0 / frameCount;
     vec3 finalColor = mix(oldColor, currentFrameColor, weight);
 
-    if (any(isnan(finalColor)) || any(isinf(finalColor))) finalColor = oldColor;
+    if (isNanOrInf(finalColor)) finalColor = oldColor;
 
     imageStore(screenTexture, pixel, vec4(finalColor, frameCount));
 }

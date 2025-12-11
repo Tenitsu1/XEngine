@@ -155,7 +155,7 @@ void main() {
     vec3 color;
 
     // 直接顯示
-    color = texture(screenTexture, TexCoords).rgb;
+    // color = texture(screenTexture, TexCoords).rgb;
 
     // 高斯模糊
     // color = gaussianBlur5x5(texelSize);
@@ -165,9 +165,9 @@ void main() {
     float edgeStrength = laplacianEdge(texelSize);
     if (edgeStrength > threshold) {
     // 對邊緣做雙邊濾波
-    color = bilateralFilter(texelSize, 2.0, 0.1);
+        color = bilateralFilter(texelSize, 2.0, 0.1);
     } else {
-    color = texture(screenTexture, TexCoords).rgb;
+        color = texture(screenTexture, TexCoords).rgb;
     }
 
     // 梯度模糊
