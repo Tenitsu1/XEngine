@@ -89,6 +89,9 @@ uniform bool cameraUpdated;
 uniform mat4 invViewProj;
 uniform bool useEnvMap;
 uniform float envIntensity;
+uniform bool TimeDenoise;
+uniform bool RayTracing;
+
 
 // --- const ---
 const int MAX_STACK_SIZE = 32;
@@ -152,6 +155,16 @@ vec3 RandomDirection(inout uint state) {
 }
 
 // --- 輔助函數 ---
+vec3 ACES_FilmicToneMapping(vec3 color) {
+    // ACES Filmic Tone Mapping
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+}
+
 Ray createRay(vec3 origin, vec3 dir) {
     Ray r;
     r.origin = origin;
@@ -366,6 +379,7 @@ vec4 RayBVH(Ray ray) {
         } else {
             // 內部節點
             const ivec2 childIndices = GetClosestChildren(ray, node, hitResult.x);
+            // 先加入較遠的子節點，後加入較近的子節點
             if (childIndices.x != -1) idxStack[stackPtr++] = childIndices.x;
             if (childIndices.y != -1) idxStack[stackPtr++] = childIndices.y;
         }
@@ -373,13 +387,15 @@ vec4 RayBVH(Ray ray) {
     return hitResult;
 }
 
-// --- hit function ---
 vec4 RayNoBVH(Ray ray) {
     vec4 hitResult = vec4(INF, 0.0, 0.0, -1.0);
     for (int i = 0; i < indices.length(); i++) RayTrianglePacked(ray, i, hitResult);
     return hitResult;
 }
 
+// ----------------------------------------------------
+// Hit World
+// ----------------------------------------------------
 bool hit_world(Ray ray, out HitRecord hit) {
     // 遍歷 BVH 找到最近交點
     vec4 hitData = useBVH ? RayBVH(ray) : RayNoBVH(ray);
@@ -539,30 +555,26 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
     return finalColor;
 }
 
-
+vec3 RayTraceOnce(Ray ray, ivec2 pixel) {
+    HitRecord hit;
+    if (!hit_world(ray, hit)) return vec3(0.0);
+    return hit.color;
+}
 
 // ----------------------------------------------------
-// 停止根據時間降噪
-bool stopDenoise = true;
-void main()
+// Main function
+// ----------------------------------------------------
+void RayTraceMain(ivec2 pixel)
 {
-    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
-
     vec4 previousData = imageLoad(screenTexture, pixel);
     vec3 oldColor = previousData.rgb;
     float frameCount = previousData.a;
-    if (stopDenoise) frameCount = 0.0;
     frameCount = cameraUpdated ? 1.0 : frameCount + 1.0;
-
-    if (frameCount > 1000.0) {
-        imageStore(screenTexture, pixel, vec4(oldColor, frameCount));
-        return;
-    }
+    if (!TimeDenoise) frameCount = 1.0;
 
     uint state = getCurrentState(pixel, frameCount);
 
-    vec2 jitter = stopDenoise ? vec2(0.0) : RandomDirection2D(state) - 0.5;
+    vec2 jitter = TimeDenoise ? RandomDirection2D(state) - 0.5 : vec2(0.0);
     vec3 dir = getRayDir(vec2(pixel) + 0.5 + jitter);
 
     //Ray ray = createRay(camera.position, dir);
@@ -572,7 +584,7 @@ void main()
         Ray ray = createRay(camera.position, dir);
         vec3 rayColor = RayTrace(ray, state, pixel);
 
-        float maxRadiance = 50.0; 
+        float maxRadiance = 10.0;
         float lum = dot(rayColor, vec3(1));
         if (lum > maxRadiance) rayColor *= maxRadiance / lum;
 
@@ -580,10 +592,30 @@ void main()
     }
     currentFrameColor /= float(SAMPLES_PER_PIXEL);
 
-    float weight = 1.0 / frameCount;
+    float weight = frameCount > 1000.0 ? 0.0 : 1.0 / frameCount;
     vec3 finalColor = mix(oldColor, currentFrameColor, weight);
 
     if (isNanOrInf(finalColor)) finalColor = oldColor;
 
+    float maxColor = max(max(finalColor.r, finalColor.g), finalColor.b);
+    if (maxColor > 1.0) finalColor /= maxColor;
+
     imageStore(screenTexture, pixel, vec4(finalColor, frameCount));
+}
+
+void RayTraceOnceMain(ivec2 pixel)
+{
+    vec3 dir = getRayDir(vec2(pixel) + 0.5);
+    Ray ray = createRay(camera.position, dir);
+    vec3 color = RayTraceOnce(ray, pixel);
+    imageStore(screenTexture, pixel, vec4(color, 1.0));
+}
+
+// ----------------------------------------------------
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= u_resolution.x || pixel.y >= u_resolution.y) return;
+
+    RayTracing ? RayTraceMain(pixel) : RayTraceOnceMain(pixel);
 }

@@ -62,6 +62,8 @@ private:
 	int mCurrentFrame = 0;
 	bool useEnvMap = true;
 	float envIntensity = 1.0f;
+	bool timeDenoise = true;
+	bool RayTracing = true;
 
 	GLuint mScreenTexture = 0;
 
@@ -212,6 +214,8 @@ public:
 			mComputeShader->setUniformInt("u_envMap", 12);
 			//mComputeShader->setUniformBool("useEnvMap", useEnvMap && EnvTextureSSBO != 0);
 			mComputeShader->setUniformFloat1("envIntensity", envIntensity);
+			mComputeShader->setUniformBool("TimeDenoise", timeDenoise);
+			mComputeShader->setUniformBool("RayTracing", RayTracing);
  
 
 			mComputeShader->DispatchCompute(mScreenTexture);
@@ -226,10 +230,11 @@ public:
 			mShader->draw(width, height);
 		}
 
+		if (!RayTracing || !timeDenoise) return;
+
 		if (cameraUpdated) {
 			mCurrentFrame = 0;
-		}
-		else if (mCurrentFrame <= 1000) {
+		} else if (mCurrentFrame <= 1000) {
 			mCurrentFrame++;
 		}
 
@@ -296,6 +301,8 @@ public:
 			// BVH
 			bool prevBVH = useBVH;
 			ImGui::Checkbox("Use BVH", &useBVH);
+			GuiCameraChanged |= ImGui::Checkbox("Time Denoise", &timeDenoise);
+			GuiCameraChanged |= ImGui::Checkbox("Ray Tracing", &RayTracing);
 			if (prevBVH != useBVH) changed = true;
 
 			// Env Map
@@ -304,6 +311,7 @@ public:
 			if (useEnvMap) {
 				changed |= ImGui::DragFloat("Intensity", &envIntensity, 0.1f, 0.0f, 100.0f);
 			}
+			ImGui::Separator();
 		}
 
 		// -------------------------------------------------------
@@ -327,6 +335,7 @@ public:
 		// 截圖按鈕
 		ImGui::Separator();
 		if (ImGui::Button("Screenshot", ImVec2(-1, 0))) {
+			if (!std::filesystem::exists("image")) std::filesystem::create_directory("image");
 			std::string fullPath = mScene->getFilePath();
 			std::string filename = "None";
 			if (!fullPath.empty()) {
@@ -336,8 +345,18 @@ public:
 			std::ostringstream path;
 			path << std::fixed;
 			path.precision(1);
-			path << "image/" << filename << "-" << samples_per_pixel << "spp" << "-" << ImGui::GetIO().Framerate << "fps" << ".png";
-			if (!std::filesystem::exists("image")) std::filesystem::create_directory("image");
+			path << "image/" << filename;
+			if (RayTracing) path << "-" << samples_per_pixel << "spp";
+			else path << "-Rasterization";
+			path << "-" << ImGui::GetIO().Framerate << "fps";
+			if (!useBVH) path << "-NoBVH";
+			if (RayTracing && timeDenoise) path << "-Denoised";
+			int num = 1;
+			std::string numStr = "";
+			while (std::filesystem::exists(path.str() + numStr + ".png")) {
+				numStr = "(" + std::to_string(num++) + ")";
+			}
+			path << numStr << ".png";
 			mShader->exportPNG(path.str(), getWindowProperties().width, getWindowProperties().height);
 		}
 
