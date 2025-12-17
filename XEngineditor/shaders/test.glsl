@@ -91,6 +91,9 @@ uniform bool useEnvMap;
 uniform float envIntensity;
 uniform bool TimeDenoise;
 uniform bool RayTracing;
+uniform vec3 u_sunDirection; 
+uniform vec3 u_sunColor;
+uniform float BackgroundColor;
 
 
 // --- const ---
@@ -194,14 +197,14 @@ vec3 sRGBToLinear(vec3 color) {
     return pow(color, vec3(2.2));
 }
 
-vec3 getBaseColor(Material mat, vec2 uv) {
-    vec3 color = mat.baseColorFactor.rgb;
+vec4 getBaseColor(Material mat, vec2 uv) {
+    vec4 color = mat.baseColorFactor;
     if (mat.baseColorTexture >= 0) {
         float layer = float(mat.baseColorTexture); 
         // [修改] 使用 textureLod 強制讀取 Level 0
-        color = textureLod(u_textures, vec3(uv, layer), 0.0).rgb;
+        color = textureLod(u_textures, vec3(uv, layer), 0.0);
 
-        color *= sRGBToLinear(color);
+        color = vec4(sRGBToLinear(color.rgb), color.a);
     }
     return color;
 }
@@ -279,6 +282,130 @@ vec3 ImportanceSampleGGX(inout uint state, vec3 N, float roughness) {
     vec3 Tangent = normalize(cross(Up, N));
     vec3 Bitangent = cross(N, Tangent);
     return normalize(Tangent * H.x + Bitangent * H.y + N * H.z);
+}
+
+// --- PBR Helper Functions for Direct Lighting ---
+float DistributionGGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+    
+    float nom   = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    
+    return nom / max(denom, 0.0000001);
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness) {
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
+
+    float nom   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+    
+    return nom / max(denom, 0.0000001);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    
+    return ggx1 * ggx2;
+}
+
+// 評估 BRDF (計算太陽光對此表面的貢獻)
+vec3 EvalPBR(vec3 N, vec3 V, vec3 L, vec3 F0, vec3 albedo, float roughness, float metallic) {
+    vec3 H = normalize(V + L);
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+
+    // Cook-Torrance BRDF
+    float NDF = DistributionGGX(N, H, roughness);   
+    float G   = GeometrySmith(N, V, L, roughness);      
+    vec3 F    = F_Schlick(max(dot(H, V), 0.0), F0);
+       
+    vec3 numerator    = NDF * G * F; 
+    float denominator = 4.0 * NdotV * NdotL + 0.0001; // +0.0001 防止除以零
+    vec3 specular = numerator / denominator;
+    
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metallic;   
+
+    return (kD * albedo / PI + specular) * NdotL; 
+}
+
+// --- Color Temperature Helper ---
+
+// 將開爾文 (Kelvin) 轉換為 RGB (線性空間 approximation)
+// 算法參考自 Tanner Helland
+vec3 KelvinToRGB(float k) {
+    vec3 color;
+    float temp = k / 100.0;
+
+    // --- Red ---
+    if (temp <= 66.0) {
+        color.r = 255.0;
+    } else {
+        color.r = 329.698727446 * pow(temp - 60.0, -0.1332047592);
+    }
+
+    // --- Green ---
+    if (temp <= 66.0) {
+        color.g = 99.4708025861 * log(temp) - 161.1195681661;
+    } else {
+        color.g = 288.1221695283 * pow(temp - 60.0, -0.0755148492);
+    }
+
+    // --- Blue ---
+    if (temp >= 66.0) {
+        color.b = 255.0;
+    } else {
+        if (temp <= 19.0) {
+            color.b = 0.0;
+        } else {
+            color.b = 138.5177312231 * log(temp - 10.0) - 305.0447927307;
+        }
+    }
+
+    // 歸一化並轉為 Linear Space (因為演算法產生的是 sRGB 範圍的 0-255)
+    vec3 finalColor = clamp(color / 255.0, 0.0, 1.0);
+    
+    // 如果你的渲染器是 Linear Workflow (通常 Path Tracer 都是)，
+    // 這裡建議將 sRGB 轉回 Linear，否則顏色會太淡/太白
+    return pow(finalColor, vec3(2.2)); 
+}
+
+// 主函數：輸入 0.0 ~ 100.0，輸出對應的顏色
+// 0.0   = 1000K  (燭光/深紅)
+// 50.0  = 6500K  (標準白光)
+// 100.0 = 15000K (藍天)
+vec3 GetColorFromTempSlider(float value) {
+    // 限制輸入範圍
+    float v = clamp(value, 0.0, 100.0);
+    
+    // 映射策略：
+    // 我們不使用線性映射，因為色溫在低數值時變化較劇烈。
+    // 這裡使用簡單的線性混合來映射到 1000K - 15000K
+    // 你可以根據喜好調整 minK 和 maxK
+    float minK = 1000.0;
+    float maxK = 15000.0;
+    
+    // 如果想要 50 剛好對應 6500K (標準白)，我們可以分段映射
+    float kelvin;
+    if (v < 50.0) {
+        // 0~50 對應 1000K ~ 6500K
+        kelvin = mix(1000.0, 6500.0, v / 50.0);
+    } else {
+        // 50~100 對應 6500K ~ 15000K
+        kelvin = mix(6500.0, 15000.0, (v - 50.0) / 50.0);
+    }
+
+    return KelvinToRGB(kelvin);
 }
 
 // --- Triangle intersect ---
@@ -393,55 +520,104 @@ vec4 RayNoBVH(Ray ray) {
     return hitResult;
 }
 
+bool HitShadow(Ray ray, float maxDist) {
+    const int MAX_TRANSPARENT_BOUNCES = 16;
+    
+    ray.origin += ray.direction * 1e-4;
+
+    for (int i = 0; i < MAX_TRANSPARENT_BOUNCES; i++) {
+        vec4 hitData = useBVH ? RayBVH(ray) : RayNoBVH(ray);
+        int hitIdx = int(hitData.w);
+
+        // 沒打中任何東西，表示通往太陽的路是通的
+        if (hitIdx == -1) return false;
+
+        // 打中了，檢查距離
+        if (hitData.x > maxDist) return false;
+
+        // 檢查 Alpha (透明度)
+        const int matID = materialIndices[hitIdx];
+        Material mat = materials[matID];
+        
+        // 算出 UV 來查透明度
+        const ivec4 index = indices[hitIdx];
+        const vec2 uv0 = texCoords[index.x];
+        const vec2 uv1 = texCoords[index.y];
+        const vec2 uv2 = texCoords[index.z];
+        const vec2 hitUV = barycentric(uv0, uv1, uv2, hitData.y, hitData.z);
+
+        float alpha = getBaseColor(mat, hitUV).a;
+
+        // 如果是透明的 (Alpha < 0.5)
+        if (alpha < 0.5) {
+            // 穿透：把光線起點移到交點後方，繼續檢查
+            ray.origin = ray.origin + ray.direction * (hitData.x + 1e-4);
+            continue;
+        }
+
+        // 如果是不透明的，表示被遮擋了
+        return true; 
+    }
+    return false;
+}
+
 // ----------------------------------------------------
 // Hit World
 // ----------------------------------------------------
 bool hit_world(Ray ray, out HitRecord hit) {
-    // 遍歷 BVH 找到最近交點
-    vec4 hitData = useBVH ? RayBVH(ray) : RayNoBVH(ray);
-    const int hitIdx = int(hitData.w);
+    for (int i = 0; i < 16; i++) {
+        // 遍歷 BVH 找到最近交點
+        const vec4 hitData = useBVH ? RayBVH(ray) : RayNoBVH(ray);
+        const int hitIdx = int(hitData.w);
 
-    // 無交點
-    if (hitIdx == -1) return false;
+        // 無交點
+        if (hitIdx == -1) return false;
 
-    const ivec4 index = indices[hitIdx];
-    const float t = hitData.x, u = hitData.y, v = hitData.z;
-    hit.t = t;
-    hit.point = ray.origin + t * ray.direction;
-    
-    // 法線
-    const vec3 geoNormal = geoNormals[hitIdx].xyz;
-    const bool frontFace = dot(ray.direction, geoNormal) < 0.0;
-    hit.frontFace = frontFace;
-    hit.geoNormal = frontFace ? geoNormal : -geoNormal;
+        const ivec4 index = indices[hitIdx];
+        const float t = hitData.x, u = hitData.y, v = hitData.z;
+        hit.t = t;
+        hit.point = ray.origin + t * ray.direction;
 
-    // 插值法線
-    const vec3 n0 = vertexNormals[index.x].xyz;
-    const vec3 n1 = vertexNormals[index.y].xyz;
-    const vec3 n2 = vertexNormals[index.z].xyz;
-    hit.shadingNormal = normalize(barycentric(n0, n1, n2, u, v));
-    // hit.shadingNormal = vec3(0.0); // [測試] 關閉插值法線
+        // 材質 顏色
+        const int matID = materialIndices[hitIdx];
+        hit.materialID = matID;
+        Material mat = materials[matID];
+        
+        // 顏色插值
+        const vec2 uv0 = texCoords[index.x];
+        const vec2 uv1 = texCoords[index.y];
+        const vec2 uv2 = texCoords[index.z];
+        const vec2 hitUV = barycentric(uv0, uv1, uv2, u, v);
 
-    // 材質 顏色
-    const int matID = materialIndices[hitIdx];
-    hit.materialID = matID;
-    Material mat = materials[matID];
-    
-    // 顏色插值
-    const vec2 uv0 = texCoords[index.x];
-    const vec2 uv1 = texCoords[index.y];
-    const vec2 uv2 = texCoords[index.z];
-    const vec2 hitUV = barycentric(uv0, uv1, uv2, u, v);
+        hit.uv = hitUV; // [新增] 將 UV 存入 HitRecord
+        vec4 baseColor = getBaseColor(mat, hitUV);
+        if (baseColor.a < 0.05) {
+            // 透明材質，繼續追蹤
+            ray.origin = hit.point + ray.direction * 1e-4;
+            continue;
+        }
+        hit.color = baseColor.rgb;
 
-    hit.uv = hitUV; // [新增] 將 UV 存入 HitRecord
-    hit.color = getBaseColor(mat, hitUV);
+        // 法線
+        const vec3 geoNormal = geoNormals[hitIdx].xyz;
+        const bool frontFace = dot(ray.direction, geoNormal) < 0.0;
+        hit.frontFace = frontFace;
+        hit.geoNormal = frontFace ? geoNormal : -geoNormal;
 
-    // Metallic && Roughness
-    vec2 mr = getMetallicRoughness(mat, hitUV);
-    hit.metallic = mr.x;
-    hit.roughness = max(mr.y, 0.04); 
+        // 插值法線
+        const vec3 n0 = vertexNormals[index.x].xyz;
+        const vec3 n1 = vertexNormals[index.y].xyz;
+        const vec3 n2 = vertexNormals[index.z].xyz;
+        hit.shadingNormal = normalize(barycentric(n0, n1, n2, u, v));
+        // hit.shadingNormal = vec3(0.0); // [測試] 關閉插值法線
 
-    return true;
+        // Metallic && Roughness
+        vec2 mr = getMetallicRoughness(mat, hitUV);
+        hit.metallic = mr.x;
+        hit.roughness = max(mr.y, 0.04);
+        return true;
+    }
+    return false;
 }
 
 // ----------------------------------------------------
@@ -461,10 +637,8 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
         HitRecord hit;
         if (!hit_world(ray, hit))
         {
-           //          // // 背景色
-           //  float a = 0.5 * (ray.direction.y + 1.0);
-           //  vec3 sky = mix(WHITE, vec3(0.5, 0.7, 1.0), a);
-           //  finalColor += throughput * sky;
+            // 背景色
+            finalColor += throughput * GetColorFromTempSlider(BackgroundColor);
             break;
         }
 
@@ -484,6 +658,29 @@ vec3 RayTrace(Ray ray, inout uint state, ivec2 pixel) {
 
         if (length(emission) > 0.0 && hit.frontFace) {
             finalColor += throughput * emission;
+        }
+
+        if (material.transmissionFactor <= 0.0) {
+            vec3 L = normalize(u_sunDirection); // 指向太陽的向量
+            float NdotL = dot(N, L);
+
+            // 只有當表面面向太陽時才計算
+            if (NdotL > 0.0) {
+                // 發射陰影射線
+                Ray shadowRay = createRay(hit.point, L);
+                // 距離設為無限大 (INF) 因為太陽是平行光
+                bool blocked = HitShadow(shadowRay, INF);
+
+                if (!blocked) {
+                    vec3 F0 = mix(vec3(0.04), hit.color, hit.metallic);
+                    
+                    // 計算 PBR 光照貢獻
+                    vec3 directLight = EvalPBR(N, -ray.direction, L, F0, hit.color, hit.roughness, hit.metallic);
+                    
+                    // 累加到最終顏色
+                    finalColor += throughput * directLight * u_sunColor;
+                }
+            }
         }
 
         // 3. 能量守恆與 Russian Roulette

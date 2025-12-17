@@ -40,7 +40,10 @@ bool Scene::load(const std::string& filepath) {
     auto& packedTris = mModel->mPackedTriangles;
     std::vector<Material> materials = mModel->getMaterials();
 
+    
     mTriangleCount = (int)Mesh.indices.size();
+    mVertexCount = (int)Mesh.vertices.size();
+    mIndexCount = mTriangleCount;
     mFilePath = filepath;
 
     XENGINE_TRACE("Building BVH...");

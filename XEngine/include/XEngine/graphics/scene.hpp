@@ -38,6 +38,8 @@ class Scene
     	// Getters
     	bool isLoaded() const { return mLoaded; }
     	int getTriangleCount() const { return mTriangleCount; }
+        int getVertexCount() const { return mVertexCount; }
+        int getIndexCount() const { return mIndexCount; }
     	std::string getFilePath() const { return mFilePath; }
     
     	void GetBoundsBox() const;
@@ -49,6 +51,8 @@ class Scene
         bool mLoaded = false;
         std::string mFilePath;
         int mTriangleCount = 0;
+        int mVertexCount = 0;
+        int mIndexCount = 0;
     
         // Model Data
         tinygltf::Model mtinyModel;
@@ -67,4 +71,4 @@ class Scene
     
         // Texture
         GLuint EnvTextureSSBO = 0;      // Binding 12
-    };
+};

@@ -64,6 +64,10 @@ private:
 	float envIntensity = 1.0f;
 	bool timeDenoise = true;
 	bool RayTracing = true;
+	glm::vec3 u_sunDirection = glm::normalize(glm::vec3(0.5, 1.0, 0.5));
+	float light = 5.0;
+	glm::vec3 u_sunColor = glm::vec3(light);
+	float BackgroundColor = 50.0f;
 
 	GLuint mScreenTexture = 0;
 
@@ -121,8 +125,8 @@ public:
 
 		// Camera setting
 		/*camera = Camera(glm::vec3(8.f, 4.0f, 0.2f));*/
-		camera = Camera(glm::vec3(0.f, 2.0f, -5.f));
-		// camera = Camera(glm::vec3(7.5f, 3.0f, 0.f));
+		// camera = Camera(glm::vec3(0.f, 2.0f, -5.f));
+		camera = Camera(glm::vec3(7.5f, 3.0f, 0.f));
 		camera.Yaw = -180.0f;
 		camera.Pitch = 0.0f;
 		camera.MovementSpeed = 5.0f; 
@@ -216,6 +220,9 @@ public:
 			mComputeShader->setUniformFloat1("envIntensity", envIntensity);
 			mComputeShader->setUniformBool("TimeDenoise", timeDenoise);
 			mComputeShader->setUniformBool("RayTracing", RayTracing);
+			mComputeShader->setUniformFloat3("u_sunDirection", u_sunDirection);
+   			mComputeShader->setUniformFloat3("u_sunColor", u_sunColor);
+			mComputeShader->setUniformFloat1("BackgroundColor", BackgroundColor);
  
 
 			mComputeShader->DispatchCompute(mScreenTexture);
@@ -286,9 +293,7 @@ public:
 			ImGui::Text("Render Stats:");
 			ImGui::Text("Performance: %.1f FPS (%.3f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
 			ImGui::Text("%d vertices,\n%d indices (%d triangles)",
-				io.MetricsRenderVertices,
-				io.MetricsRenderIndices,
-				mScene->getTriangleCount());
+				mScene->getVertexCount(), mScene->getIndexCount(), mScene->getTriangleCount());
 
 			ImGui::Separator();
 
@@ -297,6 +302,9 @@ public:
 			// Ray Tracing Params
 			GuiCameraChanged |= ImGui::DragInt("Samples", &samples_per_pixel, 1, 1, 100);
 			GuiCameraChanged |= ImGui::DragInt("Max Bounces", &max_depth, 1, 1, 20);
+			GuiCameraChanged |= ImGui::DragFloat3("sunDirection", &u_sunDirection.x, 0.01f);
+   			GuiCameraChanged |= ImGui::DragFloat3("sunColor", &u_sunColor.x, 0.1f);
+			GuiCameraChanged |= ImGui::DragFloat("BackgroundColor", &BackgroundColor, 1.0f, 0.0f, 100.0f);
 
 			// BVH
 			bool prevBVH = useBVH;
